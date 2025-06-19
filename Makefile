@@ -1,6 +1,6 @@
-# Makefile for weather data project testing
+# Makefile for weather and solar data project testing
 
-.PHONY: test test-unit test-integration test-models test-parser test-analyzer test-coverage test-verbose clean help
+.PHONY: test test-unit test-integration test-models test-parser test-analyzer test-solar test-weather test-coverage test-verbose clean help
 
 # Default target
 help:
@@ -8,6 +8,8 @@ help:
 	@echo "  test            - Run all tests"
 	@echo "  test-unit       - Run only unit tests (models, parser, analyzer)"
 	@echo "  test-integration - Run only integration tests"
+	@echo "  test-weather    - Run only weather-related tests"
+	@echo "  test-solar      - Run only solar-related tests"
 	@echo "  test-models     - Run only model tests"
 	@echo "  test-parser     - Run only parser tests"
 	@echo "  test-analyzer   - Run only analyzer tests"
@@ -21,11 +23,19 @@ test:
 
 # Run unit tests only
 test-unit:
-	poetry run pytest tests/test_weather_models.py tests/test_weather_parser.py tests/test_weather_analyzer.py
+	poetry run pytest tests/test_weather_models.py tests/test_weather_parser.py tests/test_weather_analyzer.py tests/test_solar.py
 
 # Run integration tests only
 test-integration:
-	poetry run pytest tests/test_integration.py
+	poetry run pytest tests/test_integration.py tests/test_solar_integration.py
+
+# Run weather-related tests
+test-weather:
+	poetry run pytest tests/test_weather*.py -v
+
+# Run solar-related tests
+test-solar:
+	poetry run pytest tests/test_solar*.py -v
 
 # Run specific test modules
 test-models:
