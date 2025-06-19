@@ -146,7 +146,7 @@ def create_trigger_button(
         print(f"Détail: {error}")
 
     button = TriggerButton(
-        parent,
+        parent=parent,
         text=text,
         backend_function=backend_function,
         mandatory_elements=mandatory_elements or [],

@@ -90,6 +90,13 @@ def main():
         """Fonction backend pour les calculs."""
         print(f"Calculating with: Weather={weather_file}, Solar={solar_file}")
         print(f"Parameters: Threshold={threshold} W/m², Delta T={delta_t}°C")
+                
+        # Simulation d'un traitement qui prend du temps
+        import time
+        time.sleep(2)  # Simule 2 secondes de traitement
+        
+        # Retourner un résultat pour déclencher le callback de succès
+        return f"Calcul terminé! Fichiers: {weather_file[:20]}..., {solar_file[:20]}..."
 
     calculate_button = create_trigger_button(
         parent=params_frame,
@@ -107,8 +114,6 @@ def main():
         column=2,
         sticky="e",
         font=("Arial", 10, "bold"),
-        bg="#4CAF50",
-        fg="white",
         relief=tk.RAISED,
     )
 

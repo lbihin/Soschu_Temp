@@ -1,6 +1,18 @@
+import logging
 import threading
 import tkinter as tk
 from typing import Any, Callable, List, Optional
+
+# Configuration du logger pour ce module
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 class TriggerButton(tk.Button):
@@ -52,6 +64,8 @@ class TriggerButton(tk.Button):
         self.check_interval = check_interval
 
         self.is_processing = False
+        self._result_pending = None
+        self._error_pending = None
 
         # Démarrer la vérification périodique
         self._schedule_validation_check()
@@ -59,7 +73,19 @@ class TriggerButton(tk.Button):
     def _schedule_validation_check(self):
         """Programme la prochaine vérification de validation."""
         self._check_validation()
+        self._check_pending_results()
         self.after(self.check_interval, self._schedule_validation_check)
+
+    def _check_pending_results(self):
+        """Vérifie s'il y a des résultats en attente à traiter."""
+        if self._result_pending is not None:
+            result = self._result_pending
+            self._result_pending = None
+            self._on_success(result)
+        elif self._error_pending is not None:
+            error = self._error_pending
+            self._error_pending = None
+            self._on_error(error)
 
     def _check_validation(self):
         """Vérifie si le bouton doit être activé ou désactivé."""
@@ -68,10 +94,10 @@ class TriggerButton(tk.Button):
 
         is_valid = self._validate_mandatory_elements()
 
-        # Validation personnalisée supplémentaire
-        if is_valid and self.validate_function:
+        # Validation personnalisée supplémentaire (seulement si fournie)
+        if is_valid and self.validate_function is not None:
             try:
-                is_valid = self.validate_function()
+                is_valid = bool(self.validate_function())
             except Exception as e:
                 print(f"Erreur dans la fonction de validation: {e}")
                 is_valid = False
@@ -118,7 +144,7 @@ class TriggerButton(tk.Button):
         # Si c'est un objet avec une méthode get_filename (FileSelector)
         if hasattr(element, "get_filename"):
             filename = element.get_filename().strip()
-            return len(filename) > 0
+            return len(filename) > 0  # Version normale restaurée
 
         # Si c'est un callable (fonction de validation)
         if callable(element):
@@ -158,23 +184,28 @@ class TriggerButton(tk.Button):
 
     def _start_processing(self):
         """Démarre l'état de traitement."""
+        logger.debug("Starting processing...")
         self.is_processing = True
         self.config(text=self.loading_text, state=tk.DISABLED)
 
     def _stop_processing(self):
         """Arrête l'état de traitement."""
+        logger.debug("Stopping processing...")
         self.is_processing = False
         self.config(text=self.original_text)
+        logger.debug(f"Reset text to: {self.original_text}")
         self._check_validation()  # Réévaluer l'état du bouton
 
     def _execute_backend(self):
         """Exécute la fonction backend."""
+        logger.debug("Starting backend execution...")
         try:
             if not self.backend_function:
                 raise ValueError("Aucune fonction backend définie")
 
             # Collecter les arguments depuis les éléments obligatoires
             args = self._collect_arguments()
+            logger.debug(f"Collected {len(args)} arguments")
 
             # Exécuter la fonction backend
             if args:
@@ -182,12 +213,15 @@ class TriggerButton(tk.Button):
             else:
                 result = self.backend_function()
 
-            # Programmer le callback de succès dans le thread principal
-            self.after(0, lambda: self._on_success(result))
+            logger.debug(f"Backend function completed with result: {result}")
+
+            # Stocker le résultat pour traitement dans le thread principal
+            self._result_pending = result
 
         except Exception as e:
-            # Programmer le callback d'erreur dans le thread principal
-            self.after(0, lambda: self._on_error(e))
+            logger.error(f"Exception in backend execution: {e}")
+            # Stocker l'erreur pour traitement dans le thread principal
+            self._error_pending = e
 
     def _collect_arguments(self) -> List[Any]:
         """
@@ -210,17 +244,21 @@ class TriggerButton(tk.Button):
 
     def _on_success(self, result):
         """Gestionnaire de succès."""
+        logger.debug(f"Success callback called with result: {result}")
         self._stop_processing()
         if self.success_callback:
             self.success_callback(result)
+        logger.debug("Success callback completed")
 
     def _on_error(self, error):
         """Gestionnaire d'erreur."""
+        logger.debug(f"Error callback called with error: {error}")
         self._stop_processing()
         if self.error_callback:
             self.error_callback(str(error))
         else:
-            print(f"Erreur lors de l'exécution: {error}")
+            logger.error(f"Erreur lors de l'exécution: {error}")
+        logger.debug("Error callback completed")
 
     def add_mandatory_element(self, element):
         """Ajoute un élément obligatoire à la liste."""
