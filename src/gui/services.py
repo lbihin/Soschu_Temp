@@ -1,3 +1,4 @@
+from gui.components.computation_setting import ComputationSetting
 from gui.components.file_selector import FileSelector
 
 
@@ -42,3 +43,54 @@ def create_file_selector(
     selector.grid(row=row, column=0, columnspan=columnspan, sticky=sticky, pady=pady)
 
     return selector
+
+
+def create_computation_setting(
+    parent,
+    setting_name,
+    default_value="",
+    unit_text="",
+    tooltip_description=None,
+    row=0,
+    column=0,
+    validate_numeric=False,
+    entry_width=15,
+    sticky="w",
+    padx=5,
+    pady=5,
+):
+    """
+    Crée et place un composant de paramètre de calcul dans la grille du parent.
+
+    Args:
+        parent: Widget parent
+        setting_name: Nom du paramètre (affiché comme label)
+        default_value: Valeur par défaut dans le champ de saisie
+        unit_text: Texte de l'unité affiché après le champ
+        tooltip_description: Description pour l'info-bulle (optionnel)
+        row: Ligne dans la grille parent
+        column: Colonne dans la grille parent
+        validate_numeric: Si True, valide que l'entrée est numérique
+        entry_width: Largeur du champ de saisie
+        sticky: Alignement dans la grille parent
+        padx: Espacement horizontal
+        pady: Espacement vertical
+
+    Returns:
+        ComputationSetting: L'instance du composant créé
+    """
+
+    setting = ComputationSetting(
+        parent,
+        setting_name=setting_name,
+        default_value=default_value,
+        unit_text=unit_text,
+        tooltip_description=tooltip_description,
+        validate_numeric=validate_numeric,
+        entry_width=entry_width,
+    )
+
+    # Placer le composant dans la grille du parent
+    setting.grid(row=row, column=column, sticky=sticky, padx=padx, pady=pady)
+
+    return setting

@@ -1,6 +1,7 @@
 import tkinter as tk
 
-from gui.services import create_file_selector
+from gui.components.computation_setting import ComputationSetting
+from gui.services import create_computation_setting, create_file_selector
 
 
 def main():
@@ -43,6 +44,40 @@ def main():
         file_extension=".html",
         file_description="HTML Files",
         row=1,
+    )
+
+    # Configure params_frame grid
+    params_frame.grid_columnconfigure(0, weight=1)
+    params_frame.grid_columnconfigure(1, weight=1)
+    params_frame.grid_columnconfigure(2, weight=1)
+
+    # Create computation settings in params_frame
+    threshold_setting = create_computation_setting(
+        parent=params_frame,
+        setting_name="Schwellwert",
+        default_value="200",
+        unit_text="W/m²",
+        tooltip_description="Sonnenschutzschwellwert in Watt pro Quadratmeter",
+        validate_numeric=True,
+        row=0,
+        column=0,
+        sticky="w",
+        padx=5,
+        pady=5,
+    )
+
+    delta_t_setting = create_computation_setting(
+        parent=params_frame,
+        setting_name="∆T Temperaturerhöhung",
+        default_value="7",
+        unit_text="ºC",
+        tooltip_description="Temperaturerhöhung in Grad Celsius",
+        validate_numeric=True,
+        row=0,
+        column=1,
+        sticky="w",
+        padx=5,
+        pady=5,
     )
 
 
