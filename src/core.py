@@ -1,0 +1,445 @@
+"""
+Core functionality for the Soschu Temperature tool.
+
+This module provides the main processing logic to adjust weather data based on
+solar irradiance thresholds for different facade orientations of building bodies.
+"""
+
+import logging
+import re
+from copy import deepcopy
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+from solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
+from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
+
+# Setup logging
+logger = logging.getLogger(__name__)
+
+
+class FacadeProcessor:
+    """Processes weather data adjustments based on facade solar irradiance."""
+
+    def __init__(self, threshold: float, delta_t: float):
+        """
+        Initialize the facade processor.
+
+        Args:
+            threshold: Solar irradiance threshold in W/m² above which temperature is adjusted
+            delta_t: Temperature increase in °C to apply when threshold is exceeded
+        """
+        self.threshold = threshold
+        self.delta_t = delta_t
+        self.logger = logging.getLogger(__name__)
+
+    def process_facade_data(
+        self,
+        weather_metadata: WeatherFileMetadata,
+        weather_data: List[WeatherDataPoint],
+        solar_metadata: SolarFileMetadata,
+        solar_data: List[SolarDataPoint],
+        facade_id: str,
+        building_body: str,
+    ) -> Tuple[WeatherFileMetadata, List[WeatherDataPoint]]:
+        """
+        Process weather data for a specific facade of a building body.
+
+        Args:
+            weather_metadata: Original weather file metadata
+            weather_data: Original weather data points
+            solar_metadata: Solar file metadata
+            solar_data: Solar irradiance data points
+            facade_id: Facade identifier (e.g., "f1", "f2", etc.)
+            building_body: Building body identifier (e.g., "Building body", "Building body 2")
+
+        Returns:
+            Tuple of adjusted weather metadata and weather data points
+        """
+        self.logger.info(f"Processing facade {facade_id} of {building_body}")
+
+        # Find the specific facade column in solar data
+        facade_column = self._find_facade_column(
+            solar_metadata, facade_id, building_body
+        )
+        if not facade_column:
+            self.logger.warning(
+                f"No solar data found for facade {facade_id} of {building_body}"
+            )
+            return weather_metadata, weather_data
+
+        self.logger.info(f"Found solar column: {facade_column}")
+
+        # Create a lookup table for solar irradiance by datetime
+        solar_lookup = self._create_solar_lookup(solar_data, facade_column)
+
+        # Process each weather data point
+        adjusted_weather_data = []
+        adjustments_made = 0
+
+        for weather_point in weather_data:
+            # Create a copy of the weather point for modification
+            adjusted_point = deepcopy(weather_point)
+
+            # Find corresponding solar irradiance value
+            solar_irradiance = self._get_solar_irradiance_for_datetime(
+                solar_lookup, weather_point.month, weather_point.day, weather_point.hour
+            )
+
+            # Apply temperature adjustment if threshold is exceeded
+            if solar_irradiance is not None and solar_irradiance > self.threshold:
+                adjusted_point.temperature += self.delta_t
+                adjustments_made += 1
+                self.logger.debug(
+                    f"Adjusted temperature for {weather_point.month:02d}-{weather_point.day:02d} "
+                    f"{weather_point.hour:02d}:00 - Solar: {solar_irradiance:.1f} W/m² > {self.threshold} W/m², "
+                    f"Temp: {weather_point.temperature:.1f}°C → {adjusted_point.temperature:.1f}°C"
+                )
+
+            adjusted_weather_data.append(adjusted_point)
+
+        self.logger.info(
+            f"Made {adjustments_made} temperature adjustments out of {len(weather_data)} data points"
+        )
+
+        # Create adjusted metadata
+        adjusted_metadata = self._create_adjusted_metadata(
+            weather_metadata, facade_id, building_body, adjustments_made
+        )
+
+        return adjusted_metadata, adjusted_weather_data
+
+    def _find_facade_column(
+        self, solar_metadata: SolarFileMetadata, facade_id: str, building_body: str
+    ) -> Optional[str]:
+        """
+        Find the solar data column corresponding to the specific facade and building body.
+
+        Args:
+            solar_metadata: Solar file metadata containing facade columns
+            facade_id: Facade identifier (e.g., "f1", "f2")
+            building_body: Building body identifier
+
+        Returns:
+            Column name if found, None otherwise
+        """
+        for column in solar_metadata.facade_columns:
+            # Check if column matches both facade and building body
+            if facade_id in column and building_body in column:
+                return column
+
+        return None
+
+    def _create_solar_lookup(
+        self, solar_data: List[SolarDataPoint], facade_column: str
+    ) -> Dict[Tuple[int, int, int], float]:
+        """
+        Create a lookup table for solar irradiance values by (month, day, hour).
+
+        Args:
+            solar_data: List of solar data points
+            facade_column: Name of the facade column to extract values from
+
+        Returns:
+            Dictionary mapping (month, day, hour) to irradiance value
+        """
+        lookup = {}
+
+        for solar_point in solar_data:
+            if facade_column in solar_point.irradiance_values:
+                month = solar_point.timestamp.month
+                day = solar_point.timestamp.day
+                hour = solar_point.timestamp.hour + 1  # Convert 0-23 to 1-24 format
+
+                key = (month, day, hour)
+                irradiance = solar_point.irradiance_values[facade_column]
+                lookup[key] = irradiance
+
+        self.logger.debug(
+            f"Created solar lookup with {len(lookup)} entries for column {facade_column}"
+        )
+        return lookup
+
+    def _get_solar_irradiance_for_datetime(
+        self,
+        solar_lookup: Dict[Tuple[int, int, int], float],
+        month: int,
+        day: int,
+        hour: int,
+    ) -> Optional[float]:
+        """
+        Get solar irradiance value for specific datetime.
+
+        Args:
+            solar_lookup: Solar irradiance lookup table
+            month: Month (1-12)
+            day: Day (1-31)
+            hour: Hour (1-24)
+
+        Returns:
+            Solar irradiance value in W/m² or None if not found
+        """
+        key = (month, day, hour)
+        return solar_lookup.get(key)
+
+    def _create_adjusted_metadata(
+        self,
+        original_metadata: WeatherFileMetadata,
+        facade_id: str,
+        building_body: str,
+        adjustments_made: int,
+    ) -> WeatherFileMetadata:
+        """
+        Create adjusted weather metadata with processing information.
+
+        Args:
+            original_metadata: Original weather metadata
+            facade_id: Facade identifier
+            building_body: Building body identifier
+            adjustments_made: Number of temperature adjustments made
+
+        Returns:
+            Adjusted weather metadata
+        """
+        # Create a copy of the original metadata
+        adjusted_metadata = deepcopy(original_metadata)
+
+        # Add processing information to data basis fields
+        processing_info = (
+            f"Processed for {facade_id} of {building_body} - "
+            f"Threshold: {self.threshold} W/m², Delta T: {self.delta_t}°C, "
+            f"Adjustments: {adjustments_made}"
+        )
+
+        # Update one of the data basis fields with processing info
+        if adjusted_metadata.data_basis_3:
+            adjusted_metadata.data_basis_3 = (
+                f"{adjusted_metadata.data_basis_3} | {processing_info}"
+            )
+        else:
+            adjusted_metadata.data_basis_3 = processing_info
+
+        return adjusted_metadata
+
+
+class CoreProcessor:
+    """Main processor for the Soschu Temperature tool."""
+
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+
+    def process_all_facades(
+        self,
+        weather_file_path: str,
+        solar_file_path: str,
+        threshold: float,
+        delta_t: float,
+        output_dir: str = "output",
+    ) -> Dict[str, str]:
+        """
+        Process all facades in the solar data and generate adjusted weather files.
+
+        Args:
+            weather_file_path: Path to the weather data file
+            solar_file_path: Path to the solar irradiance HTML file
+            threshold: Solar irradiance threshold in W/m²
+            delta_t: Temperature increase in °C
+            output_dir: Directory to save output files
+
+        Returns:
+            Dictionary mapping facade identifiers to output file paths
+        """
+        self.logger.info("Starting facade processing...")
+
+        # Load weather data
+        weather_metadata, weather_data = load_weather_data(weather_file_path)
+        self.logger.info(f"Loaded {len(weather_data)} weather data points")
+
+        # Load solar data
+        solar_metadata, solar_data = load_solar_irridance_data(solar_file_path)
+        self.logger.info(f"Loaded {len(solar_data)} solar data points")
+
+        # Get all facade/building body combinations
+        facade_combinations = self._extract_facade_combinations(solar_metadata)
+        self.logger.info(
+            f"Found {len(facade_combinations)} facade combinations: {facade_combinations}"
+        )
+
+        # Create output directory
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Process each facade combination
+        facade_processor = FacadeProcessor(threshold, delta_t)
+        output_files = {}
+
+        for facade_id, building_body in facade_combinations:
+            self.logger.info(f"Processing {facade_id} of {building_body}")
+
+            # Process the facade
+            adjusted_metadata, adjusted_weather_data = (
+                facade_processor.process_facade_data(
+                    weather_metadata,
+                    weather_data,
+                    solar_metadata,
+                    solar_data,
+                    facade_id,
+                    building_body,
+                )
+            )
+
+            # Generate output filename
+            safe_facade = facade_id.replace("$", "_")
+            safe_building = building_body.replace(" ", "_").replace("$", "_")
+            output_filename = f"weather_{safe_facade}_{safe_building}.dat"
+            output_file_path = output_path / output_filename
+
+            # Save adjusted weather data
+            self._save_weather_data(
+                output_file_path, adjusted_metadata, adjusted_weather_data
+            )
+
+            facade_key = f"{facade_id}_{building_body}"
+            output_files[facade_key] = str(output_file_path)
+
+            self.logger.info(f"Saved adjusted weather data to: {output_file_path}")
+
+        self.logger.info(f"Processing complete. Generated {len(output_files)} files.")
+        return output_files
+
+    def _extract_facade_combinations(
+        self, solar_metadata: SolarFileMetadata
+    ) -> List[Tuple[str, str]]:
+        """
+        Extract unique facade and building body combinations from solar metadata.
+
+        Args:
+            solar_metadata: Solar file metadata containing facade columns
+
+        Returns:
+            List of (facade_id, building_body) tuples
+        """
+        combinations = set()
+
+        for column in solar_metadata.facade_columns:
+            # Parse facade ID (e.g., "f1", "f2", "f3", "f4")
+            facade_match = re.search(r"(f\d+)", column)
+            if not facade_match:
+                continue
+            facade_id = facade_match.group(1)
+
+            # Parse building body (e.g., "Building body", "Building body 2")
+            building_match = re.search(r"(Building body(?:\s+\d+)?)", column)
+            if not building_match:
+                continue
+            building_body = building_match.group(1)
+
+            combinations.add((facade_id, building_body))
+
+        return sorted(list(combinations))
+
+    def _save_weather_data(
+        self,
+        file_path: Path,
+        metadata: WeatherFileMetadata,
+        weather_data: List[WeatherDataPoint],
+    ) -> None:
+        """
+        Save adjusted weather data to a file in TRY format.
+
+        Args:
+            file_path: Output file path
+            metadata: Weather metadata
+            weather_data: List of weather data points
+        """
+        with open(file_path, "w", encoding="latin1") as f:
+            # Write header with metadata
+            f.write(
+                "***********************************************************************\n"
+            )
+            f.write(
+                "* Adjusted TRY Weather Data - Soschu Temperature Tool                 *\n"
+            )
+            f.write(
+                "***********************************************************************\n"
+            )
+            f.write(f"Coordinate System: {metadata.coordinate_system}\n")
+            f.write(f"Rechtswert: {metadata.rechtswert}\n")
+            f.write(f"Hochwert: {metadata.hochwert}\n")
+            f.write(f"Elevation: {metadata.elevation} m\n")
+            f.write(f"TRY Type: {metadata.try_type}\n")
+            f.write(f"Reference Period: {metadata.reference_period}\n")
+            f.write(f"Data Basis 1: {metadata.data_basis_1}\n")
+            f.write(f"Data Basis 2: {metadata.data_basis_2}\n")
+            f.write(f"Data Basis 3: {metadata.data_basis_3}\n")
+            f.write(f"Creation Date: {metadata.creation_date}\n")
+            f.write(
+                "***********************************************************************\n"
+            )
+            f.write(
+                "     RW      HW MM DD HH   T    P WRI WSG  BW   WVR RH  STR   SDR   ATR   TER Q\n"
+            )
+
+            # Write data
+            for point in weather_data:
+                line = (
+                    f"{point.rechtswert:7d} {point.hochwert:7d} "
+                    f"{point.month:2d} {point.day:2d} {point.hour:2d} "
+                    f"{point.temperature:5.1f} {point.pressure:4d} "
+                    f"{point.wind_direction:3d} {point.wind_speed:3.0f} "
+                    f"{point.cloud_cover:2d} {point.humidity_ratio:4.1f} "
+                    f"{point.relative_humidity:3d} {point.direct_solar:4d} "
+                    f"{point.diffuse_solar:4d} {point.atmospheric_radiation:4d} "
+                    f"{point.terrestrial_radiation:4d} {point.quality_flag:1d}\n"
+                )
+                f.write(line)
+
+
+def process_weather_with_solar_data(
+    weather_file_path: str,
+    solar_file_path: str,
+    threshold: float,
+    delta_t: float,
+    output_dir: str = "output",
+) -> Dict[str, str]:
+    """
+    Main function to process weather data with solar irradiance adjustments.
+
+    Args:
+        weather_file_path: Path to the weather data file
+        solar_file_path: Path to the solar irradiance HTML file
+        threshold: Solar irradiance threshold in W/m²
+        delta_t: Temperature increase in °C
+        output_dir: Directory to save output files
+
+    Returns:
+        Dictionary mapping facade identifiers to output file paths
+    """
+    processor = CoreProcessor()
+    return processor.process_all_facades(
+        weather_file_path, solar_file_path, threshold, delta_t, output_dir
+    )
+
+
+# Example usage
+if __name__ == "__main__":
+    # Setup logging for testing
+    logging.basicConfig(level=logging.INFO)
+
+    # Test parameters
+    weather_file = "tests/data/TRY2045_488284093163_Jahr.dat"
+    solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
+    threshold = 200.0  # W/m²
+    delta_t = 7.0  # °C
+
+    try:
+        output_files = process_weather_with_solar_data(
+            weather_file, solar_file, threshold, delta_t
+        )
+
+        print(f"Generated {len(output_files)} output files:")
+        for facade, filepath in output_files.items():
+            print(f"  {facade}: {filepath}")
+
+    except Exception as e:
+        print(f"Error: {e}")

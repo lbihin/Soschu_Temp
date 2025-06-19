@@ -18,17 +18,6 @@ from lxml import html as lxml_html
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-def get_solar_irradiance_data_points(solar_file_path: str):
-    """Load solar irradiance data points from a file."""
-    parser = SolarDataParser()
-    _, data_points = parser.parse_file(solar_file_path)
-
-    if not data_points:
-        raise ValueError("No data points found in the file")
-
-    return data_points
-
-
 class SolarDataPoint(BaseModel):
     """Represents a single hourly solar irradiance measurement for multiple facades."""
 
@@ -323,6 +312,19 @@ class SolarDataParser:
                 pass
 
         raise ValueError(f"Cannot parse timestamp: {timestamp_text}")
+
+
+def load_solar_irridance_data(
+    solar_file_path: str,
+) -> tuple[SolarFileMetadata, List["SolarDataPoint"]]:
+    """Load solar irradiance data points from a file."""
+    parser = SolarDataParser()
+    metadata, data_points = parser.parse_file(solar_file_path)
+
+    if not data_points:
+        raise ValueError("No data points found in the file")
+
+    return metadata, data_points
 
 
 class SolarDataAnalyzer:

@@ -14,18 +14,6 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-def get_weather(weather_file_path: str):
-    """Load weather data from a file."""
-    from weather import WeatherDataParser, load_weather_data
-
-    metadata, data_points = load_weather_data(weather_file_path)
-
-    if not data_points:
-        raise ValueError("No data points found in the weather file")
-
-    return metadata, data_points
-
-
 class WeatherDataPoint(BaseModel):
     """Represents a single hourly weather measurement."""
 
@@ -326,6 +314,23 @@ class WeatherDataParser:
             raise ValueError(f"Failed to parse data fields: {e}")
 
 
+def load_weather_data(
+    file_path: str,
+) -> tuple[WeatherFileMetadata, List[WeatherDataPoint]]:
+    """
+    Convenience function to load and analyze weather data.
+
+    Args:
+        file_path: Path to the weather data file
+
+    Returns:
+        Tuple containing metadata and data points instance
+    """
+    parser = WeatherDataParser()
+    metadata, data_points = parser.parse_file(file_path)
+    return metadata, data_points
+
+
 class WeatherDataAnalyzer:
     """Analyzer for weather data with common calculations."""
 
@@ -424,76 +429,3 @@ class WeatherDataAnalyzer:
             "extreme_temperature_hours": len(extreme_temps),
             "data_quality": "Good" if not issues else "Issues detected",
         }
-
-
-def load_weather_data(
-    file_path: str,
-) -> tuple[WeatherFileMetadata, WeatherDataAnalyzer]:
-    """
-    Convenience function to load and analyze weather data.
-
-    Args:
-        file_path: Path to the weather data file
-
-    Returns:
-        Tuple containing metadata and analyzer instance
-    """
-    parser = WeatherDataParser()
-    metadata, data_points = parser.parse_file(file_path)
-    analyzer = WeatherDataAnalyzer(data_points)
-    return metadata, analyzer
-
-
-# Example usage
-if __name__ == "__main__":
-    # Setup logging for testing
-    logging.basicConfig(level=logging.INFO)
-
-    # Test with sample file
-    try:
-        file_path = "tests/data/TRY2045_488284093163_Jahr.dat"
-        metadata, analyzer = load_weather_data(file_path)
-
-        print(
-            f"Loaded weather data for location: {metadata.rechtswert}, {metadata.hochwert}"
-        )
-        print(f"Elevation: {metadata.elevation}m")
-        print(f"Data points: {len(analyzer.data_points)}")
-
-        temp_stats = analyzer.get_temperature_stats()
-        print(
-            f"Temperature range: {temp_stats['min']:.1f}°C to {temp_stats['max']:.1f}°C"
-        )
-        print(f"Mean temperature: {temp_stats['mean']:.1f}°C")
-
-        solar_stats = analyzer.get_solar_radiation_stats()
-        print(f"Max solar irradiance: {solar_stats['total_max']} W/m²")
-        print(
-            f"Annual solar radiation: {solar_stats['total_annual_kwh_m2']:.0f} kWh/m²"
-        )
-
-        # Demonstrate Pydantic features
-        print("\n--- Pydantic Features Demo ---")
-
-        # Data quality validation
-        quality = analyzer.validate_data_quality()
-        print(f"Data Quality: {quality['data_quality']}")
-        print(f"Calm wind hours: {quality['calm_wind_hours']}")
-
-        # High solar periods
-        high_solar = analyzer.get_high_solar_periods(300)
-        print(f"Hours with >300 W/m² solar: {len(high_solar)}")
-
-        # Sample data point features
-        sample_point = analyzer.data_points[1000]  # Random sample
-        print(f"\nSample data point:")
-        print(f"  DateTime: {sample_point.to_datetime()}")
-        print(f"  Total solar: {sample_point.total_solar_irradiance()} W/m²")
-        print(f"  Is daylight: {sample_point.is_daylight_hour()}")
-        print(f"  Is high solar (>200): {sample_point.is_high_solar()}")
-
-        # Metadata summary
-        print(f"\n{metadata.get_summary()}")
-
-    except Exception as e:
-        print(f"Error: {e}")

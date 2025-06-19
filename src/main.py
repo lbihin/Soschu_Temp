@@ -1,11 +1,11 @@
 import tkinter as tk
 
+from core import process_weather_with_solar_data
 from gui.services import (
     create_computation_setting,
     create_file_selector,
     create_trigger_button,
 )
-from services import get_solar_irradiance_data_points
 
 
 def main():
@@ -82,23 +82,35 @@ def main():
         sticky="w",
         padx=5,
         pady=5,
-    )
+    )  # Create Calculate button using TriggerButton
 
-    # Create Calculate button using TriggerButton
     def backend_calculation(weather_file, solar_file, threshold, delta_t):
         """Fonction backend pour les calculs."""
-        # Extraction des données des sélecteurs
-        s_data = get_solar_irradiance_data_points(solar_file)
-        print(f"Calculating with: Weather={weather_file}, Solar={solar_file}")
-        print(f"Parameters: Threshold={threshold} W/m², Delta T={delta_t}°C")
+        # Validation des paramètres
+        try:
+            threshold_value = float(threshold)
+            delta_t_value = float(delta_t)
+        except ValueError as e:
+            raise ValueError(f"Invalid numeric parameters: {e}")
 
-        # Simulation d'un traitement qui prend du temps
-        import time
+        if not weather_file or not solar_file:
+            raise ValueError("Both weather and solar files must be selected")
 
-        time.sleep(2)  # Simule 2 secondes de traitement
+        # Traitement principal avec la nouvelle fonctionnalité core
+        output_files = process_weather_with_solar_data(
+            weather_file_path=weather_file,
+            solar_file_path=solar_file,
+            threshold=threshold_value,
+            delta_t=delta_t_value,
+            output_dir="output",
+        )
+
+        print(f"Generated {len(output_files)} output files:")
+        for facade, filepath in output_files.items():
+            print(f"  {facade}: {filepath}")
 
         # Retourner un résultat pour déclencher le callback de succès
-        return f"Calcul terminé! Fichiers: {weather_file[:20]}..., {solar_file[:20]}..."
+        return f"Calcul terminé! {len(output_files)} fichiers générés dans le dossier 'output'"
 
     calculate_button = create_trigger_button(
         parent=params_frame,

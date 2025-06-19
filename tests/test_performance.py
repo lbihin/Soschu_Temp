@@ -20,7 +20,8 @@ class TestWeatherPerformance:
             pytest.skip("Sample weather file not available")
 
         start_time = time.time()
-        metadata, analyzer = load_weather_data(sample_weather_file)
+        metadata, data_points = load_weather_data(sample_weather_file)
+        analyzer = WeatherDataAnalyzer(data_points)
         end_time = time.time()
 
         parsing_time = end_time - start_time
@@ -38,10 +39,11 @@ class TestWeatherPerformance:
         if not Path(sample_weather_file).exists():
             pytest.skip("Sample weather file not available")
 
-        metadata, analyzer = load_weather_data(sample_weather_file)
+        metadata, data_points = load_weather_data(sample_weather_file)
+        analyzer = WeatherDataAnalyzer(data_points)
 
-        # Test multiple statistics calculations
-        operations = [
+        # Time various statistics calculations
+        functions_to_time = [
             analyzer.get_temperature_stats,
             analyzer.get_solar_radiation_stats,
             analyzer.get_wind_stats,
@@ -52,7 +54,7 @@ class TestWeatherPerformance:
         ]
 
         total_time = 0
-        for operation in operations:
+        for operation in functions_to_time:
             start_time = time.time()
             result = operation()
             end_time = time.time()
@@ -114,7 +116,8 @@ class TestWeatherPerformance:
         if not Path(sample_weather_file).exists():
             pytest.skip("Sample weather file not available")
 
-        metadata, analyzer = load_weather_data(sample_weather_file)
+        metadata, data_points = load_weather_data(sample_weather_file)
+        analyzer = WeatherDataAnalyzer(data_points)
 
         # Test various filtering operations
         filters = [
@@ -151,7 +154,8 @@ class TestWeatherPerformance:
         initial_size = sys.getsizeof([])
 
         # Load data
-        metadata, analyzer = load_weather_data(sample_weather_file)
+        metadata, data_points = load_weather_data(sample_weather_file)
+        analyzer = WeatherDataAnalyzer(data_points)
 
         # Check memory usage of data points
         data_size = sys.getsizeof(analyzer.data_points)
