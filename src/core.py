@@ -12,8 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from src.solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
-from src.weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
+from solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
+from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
 
 # Setup logging
 logger = logging.getLogger(__name__)
