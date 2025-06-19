@@ -8,11 +8,12 @@ solar irradiance thresholds for different facade orientations of building bodies
 import logging
 import re
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
-from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
+from src.solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
+from src.weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ class FacadeProcessor:
 
             # Find corresponding solar irradiance value
             solar_irradiance = self._get_solar_irradiance_for_datetime(
-                solar_lookup, weather_point.month, weather_point.day, weather_point.hour
+                solar_lookup, weather_point
             )
 
             # Apply temperature adjustment if threshold is exceeded
@@ -132,28 +133,27 @@ class FacadeProcessor:
 
     def _create_solar_lookup(
         self, solar_data: List[SolarDataPoint], facade_column: str
-    ) -> Dict[Tuple[int, int, int], float]:
+    ) -> Dict[datetime, float]:
         """
-        Create a lookup table for solar irradiance values by (month, day, hour).
+        Create a lookup table for solar irradiance values by datetime.
+
+        Uses naive datetime objects to enable direct comparison with weather data.
 
         Args:
             solar_data: List of solar data points
             facade_column: Name of the facade column to extract values from
 
         Returns:
-            Dictionary mapping (month, day, hour) to irradiance value
+            Dictionary mapping naive datetime to irradiance value
         """
         lookup = {}
 
         for solar_point in solar_data:
             if facade_column in solar_point.irradiance_values:
-                month = solar_point.timestamp.month
-                day = solar_point.timestamp.day
-                hour = solar_point.timestamp.hour + 1  # Convert 0-23 to 1-24 format
-
-                key = (month, day, hour)
+                # Use naive datetime for comparison (solar timestamps are already naive)
+                dt_key = solar_point.timestamp
                 irradiance = solar_point.irradiance_values[facade_column]
-                lookup[key] = irradiance
+                lookup[dt_key] = irradiance
 
         self.logger.debug(
             f"Created solar lookup with {len(lookup)} entries for column {facade_column}"
@@ -162,25 +162,60 @@ class FacadeProcessor:
 
     def _get_solar_irradiance_for_datetime(
         self,
-        solar_lookup: Dict[Tuple[int, int, int], float],
-        month: int,
-        day: int,
-        hour: int,
+        solar_lookup: Dict[datetime, float],
+        weather_point: WeatherDataPoint,
     ) -> Optional[float]:
         """
-        Get solar irradiance value for specific datetime.
+        Get solar irradiance value for specific weather data point.
+
+        Uses naive datetime comparison to handle MEZ/MESZ differences correctly.
+        Matches based on month/day/hour regardless of year.
 
         Args:
             solar_lookup: Solar irradiance lookup table
-            month: Month (1-12)
-            day: Day (1-31)
-            hour: Hour (1-24)
+            weather_point: Weather data point to find solar irradiance for
 
         Returns:
             Solar irradiance value in W/m² or None if not found
         """
-        key = (month, day, hour)
-        return solar_lookup.get(key)
+        # Try direct lookup first (for cases where years match)
+        weather_dt = weather_point.to_datetime_for_comparison()
+        irradiance = solar_lookup.get(weather_dt)
+
+        if irradiance is not None:
+            return irradiance
+
+        # If no exact match, try matching by month/day/hour regardless of year
+        weather_month = weather_point.month
+        weather_day = weather_point.day
+        weather_hour = weather_point.hour - 1  # Convert to 0-23 format
+
+        for solar_dt, solar_irradiance in solar_lookup.items():
+            if (
+                solar_dt.month == weather_month
+                and solar_dt.day == weather_day
+                and solar_dt.hour == weather_hour
+            ):
+                self.logger.debug(
+                    f"Found solar data by date/time match: "
+                    f"Weather: {weather_month:02d}-{weather_day:02d} {weather_hour:02d}:00, "
+                    f"Solar: {solar_dt}"
+                )
+                return solar_irradiance
+
+        # If still no match, try a tolerance-based search
+        for solar_dt, solar_irradiance in solar_lookup.items():
+            # Create comparable datetimes with same year
+            weather_dt_adjusted = weather_dt.replace(year=solar_dt.year)
+            time_diff = abs((weather_dt_adjusted - solar_dt).total_seconds())
+            if time_diff <= 1800:  # 30 minutes tolerance
+                self.logger.debug(
+                    f"Found solar data with {time_diff/60:.1f} min difference: "
+                    f"Weather: {weather_dt_adjusted}, Solar: {solar_dt}"
+                )
+                return solar_irradiance
+
+        return None
 
     def _create_adjusted_metadata(
         self,

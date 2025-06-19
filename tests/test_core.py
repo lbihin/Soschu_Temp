@@ -5,6 +5,7 @@ Tests for the core functionality of the Soschu Temperature tool.
 import logging
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -116,36 +117,102 @@ class TestFacadeProcessor:
         assert isinstance(lookup, dict)
         assert len(lookup) > 0
 
-        # Check that lookup uses correct key format (month, day, hour)
+        # Check that lookup uses correct key format (datetime objects)
         for key in lookup.keys():
-            assert isinstance(key, tuple)
-            assert len(key) == 3
-            month, day, hour = key
-            assert 1 <= month <= 12
-            assert 1 <= day <= 31
-            assert 1 <= hour <= 24
+            assert isinstance(key, datetime)
+            # Check that datetime components are in valid ranges
+            assert 1 <= key.month <= 12
+            assert 1 <= key.day <= 31
+            assert 0 <= key.hour <= 23  # Solar data uses 0-23 format
 
     def test_get_solar_irradiance_for_datetime(self, facade_processor):
         """Test solar irradiance retrieval."""
-        # Create a test lookup
+        # Create a test lookup with datetime keys
         lookup = {
-            (1, 1, 12): 150.5,
-            (6, 15, 14): 350.2,
+            datetime(2025, 1, 1, 11, 0): 150.5,  # 11:00 solar = 12:00 weather (hour 12)
+            datetime(
+                2025, 6, 15, 13, 0
+            ): 350.2,  # 13:00 solar = 14:00 weather (hour 14)
         }
+
+        # Create weather data points for testing
+        from src.weather import WeatherDataPoint
+
+        weather_point_1 = WeatherDataPoint(
+            rechtswert=488284,
+            hochwert=93163,
+            month=1,
+            day=1,
+            hour=12,
+            temperature=5.0,
+            pressure=1013,
+            wind_direction=180,
+            wind_speed=2.0,
+            cloud_cover=4,
+            humidity_ratio=4.0,
+            relative_humidity=70,
+            direct_solar=100,
+            diffuse_solar=50,
+            atmospheric_radiation=350,
+            terrestrial_radiation=-50,
+            quality_flag=1,
+        )
+
+        weather_point_2 = WeatherDataPoint(
+            rechtswert=488284,
+            hochwert=93163,
+            month=6,
+            day=15,
+            hour=14,
+            temperature=25.0,
+            pressure=1013,
+            wind_direction=180,
+            wind_speed=3.0,
+            cloud_cover=2,
+            humidity_ratio=12.0,
+            relative_humidity=60,
+            direct_solar=500,
+            diffuse_solar=150,
+            atmospheric_radiation=400,
+            terrestrial_radiation=-80,
+            quality_flag=1,
+        )
+
+        weather_point_nonexistent = WeatherDataPoint(
+            rechtswert=488284,
+            hochwert=93163,
+            month=12,
+            day=31,
+            hour=24,
+            temperature=0.0,
+            pressure=1013,
+            wind_direction=0,
+            wind_speed=0.0,
+            cloud_cover=0,
+            humidity_ratio=2.0,
+            relative_humidity=80,
+            direct_solar=0,
+            diffuse_solar=0,
+            atmospheric_radiation=300,
+            terrestrial_radiation=-40,
+            quality_flag=1,
+        )
 
         # Test existing values
         assert (
-            facade_processor._get_solar_irradiance_for_datetime(lookup, 1, 1, 12)
+            facade_processor._get_solar_irradiance_for_datetime(lookup, weather_point_1)
             == 150.5
         )
         assert (
-            facade_processor._get_solar_irradiance_for_datetime(lookup, 6, 15, 14)
+            facade_processor._get_solar_irradiance_for_datetime(lookup, weather_point_2)
             == 350.2
         )
 
         # Test non-existing values
         assert (
-            facade_processor._get_solar_irradiance_for_datetime(lookup, 12, 31, 24)
+            facade_processor._get_solar_irradiance_for_datetime(
+                lookup, weather_point_nonexistent
+            )
             is None
         )
 

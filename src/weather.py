@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -94,8 +95,110 @@ class WeatherDataPoint(BaseModel):
         return v
 
     def to_datetime(self, year: int = 2045) -> datetime:
-        """Convert month/day/hour to datetime object."""
-        return datetime(year, self.month, self.day, self.hour - 1)  # Hour 1-24 -> 0-23
+        """
+        Convert month/day/hour to naive datetime object (for backwards compatibility).
+
+        Args:
+            year: Year for the datetime (default 2045 for TRY data)
+
+        Returns:
+            Naive datetime object (for backwards compatibility and comparison)
+
+        Note:
+            - Hours are in MEZ format (1-24)
+            - Hour 1-24 is converted to 0-23 for datetime compatibility
+            - Returns naive datetime for direct comparison with solar data
+        """
+        # Convert hour from 1-24 format to 0-23 format
+        hour_24 = self.hour - 1
+
+        # Create naive datetime for comparison purposes
+        return datetime(year, self.month, self.day, hour_24)
+
+    def to_datetime_mez_aware(self, year: int = 2045) -> datetime:
+        """
+        Convert to timezone-aware datetime in Europe/Berlin timezone (MEZ/MESZ).
+
+        This method properly handles the distinction between MEZ (winter) and MESZ (summer)
+        by using the Europe/Berlin timezone which automatically applies DST rules.
+
+        Args:
+            year: Year for the datetime (default 2045 for TRY data)
+
+        Returns:
+            Timezone-aware datetime object in Europe/Berlin timezone
+
+        Note:
+            - Input hours are interpreted as local MEZ time
+            - Automatically converts to MESZ during summer period
+            - Use for saving data in proper MEZ/MESZ format
+        """
+        from zoneinfo import ZoneInfo
+
+        # Convert hour from 1-24 format to 0-23 format
+        hour_24 = self.hour - 1
+
+        # Create naive datetime first (assuming MEZ input)
+        dt_naive = datetime(year, self.month, self.day, hour_24)
+
+        # Localize to Europe/Berlin timezone (this handles MEZ/MESZ conversion)
+        berlin_tz = ZoneInfo("Europe/Berlin")
+
+        try:
+            # Try to localize - this will handle DST transitions
+            dt_aware = dt_naive.replace(tzinfo=berlin_tz)
+            return dt_aware
+        except Exception as e:
+            # Handle ambiguous times during DST transitions
+            # During fall back, prefer the first occurrence (MESZ)
+            # During spring forward, skip to the next valid hour
+            if hour_24 == 2:  # Common DST transition hour
+                # Spring forward: 2:00 MEZ -> 3:00 MESZ
+                dt_adjusted = datetime(year, self.month, self.day, 3)
+                return dt_adjusted.replace(tzinfo=berlin_tz)
+            elif hour_24 == 3:  # Fall back potential ambiguity
+                # Fall back: could be either MESZ or MEZ, prefer MESZ (first occurrence)
+                return dt_naive.replace(tzinfo=berlin_tz)
+            else:
+                raise ValueError(
+                    f"Cannot localize datetime {dt_naive} to Europe/Berlin: {e}"
+                )
+
+    def to_datetime_for_comparison(self, year: int = 2045) -> datetime:
+        """
+        Convert to naive datetime specifically for comparison with solar data.
+
+        This method ensures that weather data times can be directly compared
+        with solar data times without timezone complications.
+
+        Args:
+            year: Year for the datetime (default 2045 for TRY data)
+
+        Returns:
+            Naive datetime object suitable for direct comparison
+
+        Usage:
+            >>> weather_dt = weather_point.to_datetime_for_comparison()
+            >>> solar_dt = solar_point.timestamp  # assuming solar timestamp is naive
+            >>> if weather_dt == solar_dt:
+            ...     # Direct comparison works
+        """
+        return self.to_datetime(year)
+
+    def to_datetime_for_storage(self, year: int = 2045) -> datetime:
+        """
+        Convert to the appropriate format for storage (MEZ-aware).
+
+        This method returns the datetime in the format that should be used
+        when saving weather data, maintaining MEZ/MESZ distinction.
+
+        Args:
+            year: Year for the datetime (default 2045 for TRY data)
+
+        Returns:
+            Timezone-aware datetime in Europe/Berlin timezone
+        """
+        return self.to_datetime_mez_aware(year)
 
     def total_solar_irradiance(self) -> int:
         """Calculate total solar irradiance (direct + diffuse)."""
@@ -105,7 +208,13 @@ class WeatherDataPoint(BaseModel):
         """Convert to dictionary with computed fields."""
         data = self.model_dump()
         data["total_solar_irradiance"] = self.total_solar_irradiance()
-        data["datetime"] = self.to_datetime()
+        data["datetime"] = self.to_datetime()  # Naive datetime for compatibility
+        data["datetime_mez_aware"] = (
+            self.to_datetime_mez_aware()
+        )  # Timezone-aware datetime
+        data["datetime_for_comparison"] = (
+            self.to_datetime_for_comparison()
+        )  # For solar data comparison
         return data
 
     def is_daylight_hour(self) -> bool:
@@ -115,6 +224,39 @@ class WeatherDataPoint(BaseModel):
     def is_high_solar(self, threshold: float = 200.0) -> bool:
         """Check if solar irradiance exceeds threshold."""
         return self.total_solar_irradiance() > threshold
+
+    def to_datetime_naive(self, year: int = 2045) -> datetime:
+        """
+        Convert to naive datetime (without timezone) for comparison with solar data.
+
+        This method creates a naive datetime that represents the local time
+        as it would appear in MEZ/MESZ, useful for direct comparison with
+        solar data timestamps that don't include timezone information.
+
+        Args:
+            year: Year for the datetime (default 2045 for TRY data)
+
+        Returns:
+            Naive datetime object representing local MEZ/MESZ time
+        """
+        # Get the timezone-aware datetime
+        dt_tz = self.to_datetime_mez_aware(year)
+        # Return as naive datetime (removes timezone info but keeps local time)
+        return dt_tz.replace(tzinfo=None)
+
+    def is_dst_transition_hour(self, year: int = 2045) -> bool:
+        """
+        Check if this data point represents an hour affected by DST transition.
+
+        Returns:
+            True if this hour is affected by daylight saving time transition
+        """
+        try:
+            # Try to create the timezone-aware datetime - if it fails, it's likely a DST transition
+            self.to_datetime_mez_aware(year)
+            return False
+        except ValueError:
+            return True
 
 
 class WeatherFileMetadata(BaseModel):
