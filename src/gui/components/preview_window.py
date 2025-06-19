@@ -1,23 +1,34 @@
+import logging
 import tkinter as tk
-from tkinter import ttk
-from typing import List
+from tkinter import messagebox, ttk
+from typing import Callable, List, Optional
 
 from core import PreviewAdjustment, PreviewResult
+
+# Configuration du logger pour ce module
+logger = logging.getLogger(__name__)
 
 
 class PreviewWindow:
     """Fenêtre de prévisualisation des conversions qui vont être appliquées."""
 
-    def __init__(self, parent, preview_result: PreviewResult):
+    def __init__(
+        self,
+        parent,
+        preview_result: PreviewResult,
+        generate_callback: Optional[Callable] = None,
+    ):
         """
         Initialise la fenêtre de prévisualisation.
 
         Args:
             parent: Widget parent
             preview_result: Résultat de la prévisualisation
+            generate_callback: Fonction à appeler pour générer les fichiers
         """
         self.parent = parent
         self.preview_result = preview_result
+        self.generate_callback = generate_callback
         self.window = None
 
     def show(self):
@@ -84,14 +95,14 @@ class PreviewWindow:
         info_title.pack(fill=tk.X, pady=5)
 
         info_text = f"""
-Nombre de façades détectées: {len(self.preview_result.facade_combinations)}
+Nombre de Façades à traiter: {len(self.preview_result.facade_combinations)}
 Total d'ajustements de température: {self.preview_result.total_adjustments:,}
-Points de données météo: {self.preview_result.parameters['weather_data_points']:,}
-Points de données solaires: {self.preview_result.parameters['solar_data_points']:,}
+Nombre de points fichier météo: {self.preview_result.parameters['weather_data_points']:,}
+Nombre  de points fichier irradiance solaire: {self.preview_result.parameters['solar_data_points']:,}
 
 Paramètres de traitement:
 • Seuil d'irradiance: {self.preview_result.parameters['threshold']} W/m²
-• Augmentation de température: {self.preview_result.parameters['delta_t']} °C
+• Augmentation de température: {self.preview_result.parameters['delta_t']} K
         """.strip()
 
         info_label = tk.Label(info_frame, text=info_text, justify=tk.LEFT, anchor="w")
@@ -280,15 +291,15 @@ Fichier solaire:
 Paramètres de calcul:
 
 Seuil d'irradiance solaire: {self.preview_result.parameters['threshold']} W/m²
-Augmentation de température: {self.preview_result.parameters['delta_t']} °C
+Augmentation de température: {self.preview_result.parameters['delta_t']} K
 
 Données chargées:
 
 Points de données météo: {self.preview_result.parameters['weather_data_points']:,}
 Points de données solaires: {self.preview_result.parameters['solar_data_points']:,}
-Façades détectées: {len(self.preview_result.facade_combinations)}
+Façades à traiter: {len(self.preview_result.facade_combinations)}
 
-Façades détectées:
+Façades à traiter:
         """.strip()
 
         for facade_id, building_body in self.preview_result.facade_combinations:
@@ -318,6 +329,19 @@ Façades détectées:
         )
         close_button.pack(side=tk.RIGHT, padx=5)
 
+        # Bouton Générer les fichiers (le plus important)
+        if self.generate_callback:
+            generate_button = tk.Button(
+                button_frame,
+                text="Générer les fichiers",
+                command=self._generate_files,
+                font=("Arial", 10, "bold"),
+                width=20,
+                bg="lightgreen",
+                relief=tk.RAISED,
+            )
+            generate_button.pack(side=tk.RIGHT, padx=5)
+
         # Bouton Exporter (pour plus tard)
         export_button = tk.Button(
             button_frame,
@@ -334,6 +358,60 @@ Façades détectées:
         # TODO: Implémenter l'export en CSV ou texte
         pass
 
+    def _generate_files(self):
+        """Lance la génération des fichiers."""
+        if not self.generate_callback:
+            logger.error("Aucune fonction de génération définie")
+            messagebox.showerror("Erreur", "Aucune fonction de génération définie")
+            return
+
+        # Confirmation avant génération
+        response = messagebox.askyesno(
+            "Confirmation",
+            f"Voulez-vous générer les fichiers avec {self.preview_result.total_adjustments} ajustements de température ?",
+            icon="question",
+        )
+
+        if not response:
+            logger.info("Génération annulée par l'utilisateur")
+            return
+
+        try:
+            # Désactiver temporairement la fenêtre si elle existe
+            if self.window:
+                self.window.config(cursor="wait")
+                self.window.update()
+
+            logger.info("Début de la génération des fichiers...")
+
+            # Appeler la fonction de génération
+            result = self.generate_callback()
+
+            # Remettre le curseur normal
+            if self.window:
+                self.window.config(cursor="")
+
+            # Afficher le résultat
+            if result:
+                logger.info(f"Génération terminée: {result}")
+                messagebox.showinfo(
+                    "Succès", f"Génération terminée avec succès!\n\n{result}"
+                )
+                # Fermer la fenêtre de prévisualisation après succès
+                self._on_close()
+            else:
+                logger.warning("Génération terminée mais aucun résultat retourné")
+                messagebox.showinfo("Terminé", "Génération terminée")
+
+        except Exception as e:
+            # Remettre le curseur normal en cas d'erreur
+            if self.window:
+                self.window.config(cursor="")
+            logger.error(f"Erreur lors de la génération: {e}")
+            messagebox.showerror(
+                "Erreur", f"Erreur lors de la génération des fichiers:\n{str(e)}"
+            )
+
     def _on_close(self):
         """Gestionnaire de fermeture de la fenêtre."""
         if self.window:
@@ -341,13 +419,16 @@ Façades détectées:
             self.window = None
 
 
-def show_preview_window(parent, preview_result: PreviewResult):
+def show_preview_window(
+    parent, preview_result: PreviewResult, generate_callback: Optional[Callable] = None
+):
     """
     Fonction utilitaire pour afficher la fenêtre de prévisualisation.
 
     Args:
         parent: Widget parent
         preview_result: Résultat de la prévisualisation
+        generate_callback: Fonction à appeler pour générer les fichiers
     """
-    preview_window = PreviewWindow(parent, preview_result)
+    preview_window = PreviewWindow(parent, preview_result, generate_callback)
     preview_window.show()

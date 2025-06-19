@@ -7,7 +7,6 @@ from gui.services import (
     create_computation_setting,
     create_file_selector,
     create_preview_button,
-    create_trigger_button,
 )
 
 # Configuration du logger pour ce module
@@ -68,7 +67,6 @@ def main():
     params_frame.grid_columnconfigure(0, weight=1)
     params_frame.grid_columnconfigure(1, weight=1)
     params_frame.grid_columnconfigure(2, weight=1)
-    params_frame.grid_columnconfigure(3, weight=1)
 
     # Create computation settings in params_frame
     threshold_setting = create_computation_setting(
@@ -144,8 +142,15 @@ def main():
     def preview_success_callback(preview_result):
         """Callback de succès pour la prévisualisation - exécuté dans le thread principal."""
         if preview_result:
+            # Créer une fonction de génération avec les paramètres capturés
+            def generate_files_with_params():
+                """Fonction de génération avec paramètres pré-configurés."""
+                return backend_calculation(
+                    weather_selector, solar_selector, threshold_setting, delta_t_setting
+                )
+
             # Afficher la fenêtre de prévisualisation dans le thread principal
-            show_preview_window(root, preview_result)
+            show_preview_window(root, preview_result, generate_files_with_params)
             logger.info(
                 f"Prévisualisation terminée! {preview_result.total_adjustments} ajustements détectés."
             )
@@ -228,27 +233,6 @@ def main():
         font=("Arial", 10),
         relief=tk.RAISED,
         bg="lightblue",
-    )
-
-    # Bouton de calcul
-    calculate_button = create_trigger_button(
-        parent=params_frame,
-        text="Rechnen",
-        execute_on_click=backend_calculation,
-        on_click_args=[
-            weather_selector,
-            solar_selector,
-            threshold_setting,
-            delta_t_setting,
-        ],
-        success_message="Calcul terminé avec succès",
-        error_message="Erreur lors du calcul",
-        row=0,
-        column=3,
-        sticky="ew",
-        font=("Arial", 10, "bold"),
-        relief=tk.RAISED,
-        bg="lightgreen",
     )
 
 
