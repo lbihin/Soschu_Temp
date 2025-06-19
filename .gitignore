@@ -1,7 +1,7 @@
 # Project-specific
 .DS_Store
-testing_output/
 test_output/
+output/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

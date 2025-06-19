@@ -86,20 +86,39 @@ def main():
 
     def backend_calculation(weather_file, solar_file, threshold, delta_t):
         """Fonction backend pour les calculs."""
-        # Validation des paramètres
-        try:
+        # Extraction des valeurs depuis les objets ComputationSetting si nécessaire
+        if hasattr(threshold, "get_numeric_value"):
+            threshold_value = threshold.get_numeric_value()
+            if threshold_value is None:
+                raise ValueError(f"Invalid threshold value: {threshold.get_value()}")
+        else:
             threshold_value = float(threshold)
-            delta_t_value = float(delta_t)
-        except ValueError as e:
-            raise ValueError(f"Invalid numeric parameters: {e}")
 
-        if not weather_file or not solar_file:
+        if hasattr(delta_t, "get_numeric_value"):
+            delta_t_value = delta_t.get_numeric_value()
+            if delta_t_value is None:
+                raise ValueError(f"Invalid delta_t value: {delta_t.get_value()}")
+        else:
+            delta_t_value = float(delta_t)
+
+        # Extraction des noms de fichiers si nécessaire
+        if hasattr(weather_file, "get_filename"):
+            weather_file_path = weather_file.get_filename()
+        else:
+            weather_file_path = weather_file
+
+        if hasattr(solar_file, "get_filename"):
+            solar_file_path = solar_file.get_filename()
+        else:
+            solar_file_path = solar_file
+
+        if not weather_file_path or not solar_file_path:
             raise ValueError("Both weather and solar files must be selected")
 
         # Traitement principal avec la nouvelle fonctionnalité core
         output_files = process_weather_with_solar_data(
-            weather_file_path=weather_file,
-            solar_file_path=solar_file,
+            weather_file_path=weather_file_path,
+            solar_file_path=solar_file_path,
             threshold=threshold_value,
             delta_t=delta_t_value,
             output_dir="output",
