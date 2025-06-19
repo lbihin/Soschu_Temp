@@ -41,7 +41,6 @@ def main():
     # 2. Afficher les métadonnées
     print("\n2. Métadonnées extraites:")
     print(f"   - Titre: {metadata.title}")
-    print(f"   - Objet: {metadata.object_name}")
     print(f"   - Date simulation: {metadata.simulation_date}")
 
     # 3. Analyser les orientations de façades
@@ -101,7 +100,7 @@ def main():
 
     # 8. Export des données
     print("\n8. Export CSV:")
-    output_file = Path("tests/testing_output/solar_example_export.csv")
+    output_file = Path("test_output/solar_example_export.csv")
     analyzer.export_to_csv(str(output_file))
     print(f"   - Données exportées vers: {output_file}")
     print(f"   - Taille du fichier: {output_file.stat().st_size} bytes")

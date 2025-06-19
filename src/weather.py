@@ -14,6 +14,18 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+def get_weather(weather_file_path: str):
+    """Load weather data from a file."""
+    from weather import WeatherDataParser, load_weather_data
+
+    metadata, data_points = load_weather_data(weather_file_path)
+
+    if not data_points:
+        raise ValueError("No data points found in the weather file")
+
+    return metadata, data_points
+
+
 class WeatherDataPoint(BaseModel):
     """Represents a single hourly weather measurement."""
 
