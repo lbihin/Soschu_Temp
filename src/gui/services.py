@@ -1,6 +1,19 @@
-from gui.components.computation_setting import ComputationSetting
-from gui.components.file_selector import FileSelector
-from gui.components.trigger_button import TriggerButton
+import logging
+
+from .components.computation_setting import ComputationSetting
+from .components.file_selector import FileSelector
+from .components.trigger_button import TriggerButton
+
+# Configuration du logger pour ce module
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 def create_file_selector(
@@ -157,13 +170,13 @@ def create_trigger_button(
 
     def default_success_callback(result):
         if success_message:
-            print(f"Succès: {success_message}")
-        print(f"Résultat: {result}")
+            logger.info(f"Succès: {success_message}")
+        logger.info(f"Résultat: {result}")
 
     def default_error_callback(error):
         if error_message:
-            print(f"Erreur: {error_message}")
-        print(f"Détail: {error}")
+            logger.error(f"Erreur: {error_message}")
+        logger.error(f"Détail: {error}")
 
     # Séparer les arguments de positionnement/style des arguments Tkinter
     # Les kwargs contiennent uniquement les arguments pour tk.Button (font, relief, etc.)
@@ -178,6 +191,95 @@ def create_trigger_button(
     )
 
     # Placer le composant dans la grille du parent
+    button.grid(
+        row=row,
+        column=column,
+        columnspan=columnspan,
+        sticky=sticky,
+        padx=padx,
+        pady=pady,
+    )
+
+    return button
+
+
+def create_preview_button(
+    parent,
+    text="Prévisualiser",
+    preview_function=None,
+    on_click_args=None,
+    success_callback=None,
+    error_callback=None,
+    row=0,
+    column=0,
+    columnspan=1,
+    sticky="ew",
+    padx=5,
+    pady=5,
+    **kwargs,
+):
+    """
+    Crée et place un bouton de prévisualisation qui affiche les conversions
+    qui vont être appliquées sans les exécuter.
+
+    Args:
+        parent: Widget parent
+        text: Texte du bouton
+        preview_function: Fonction de prévisualisation à exécuter
+        on_click_args: Liste des widgets dont il faut extraire les valeurs
+        success_callback: Callback personnalisé de succès
+        error_callback: Callback personnalisé d'erreur
+        row: Ligne dans la grille parent
+        column: Colonne dans la grille parent
+        columnspan: Nombre de colonnes à occuper
+        sticky: Alignement dans la grille parent
+        padx: Espacement horizontal
+        pady: Espacement vertical
+        **kwargs: Arguments supplémentaires pour tk.Button
+
+    Returns:
+        TriggerButton: L'instance du composant créé
+    """
+
+    def preview_wrapper(*args):
+        """Fonction wrapper qui collecte les valeurs et exécute la prévisualisation."""
+        if not preview_function:
+            return None
+
+        collected_args = []
+        if on_click_args:
+            for widget in on_click_args:
+                if hasattr(widget, "get_filename"):
+                    # Pour les sélecteurs de fichier (FileSelector)
+                    collected_args.append(widget.get_filename())
+                elif hasattr(widget, "get"):
+                    # Pour les Entry, Text, ComputationSetting, etc.
+                    collected_args.append(widget.get())
+                else:
+                    # Fallback: ajouter le widget lui-même
+                    collected_args.append(widget)
+
+        return preview_function(*collected_args)
+
+    def default_preview_success_callback(result):
+        """Callback de succès par défaut."""
+        logger.info("Prévisualisation terminée avec succès")
+        return result
+
+    def default_preview_error_callback(error):
+        """Callback d'erreur par défaut."""
+        logger.error(f"Erreur lors de la prévisualisation: {error}")
+
+    button = TriggerButton(
+        parent=parent,
+        text=text,
+        backend_function=preview_wrapper,
+        mandatory_elements=on_click_args or [],
+        success_callback=success_callback or default_preview_success_callback,
+        error_callback=error_callback or default_preview_error_callback,
+        **kwargs,
+    )
+
     button.grid(
         row=row,
         column=column,

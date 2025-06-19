@@ -1,5 +1,11 @@
 """
-Core functionality for the Soschu Temperature tool.
+Corimport logging
+import re
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, NamedTupletionality for the Soschu Temperature tool.
 
 This module provides the main processing logic to adjust weather data based on
 solar irradiance thresholds for different facade orientations of building bodies.
@@ -10,7 +16,7 @@ import re
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
 from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
@@ -428,6 +434,150 @@ class CoreProcessor:
                     f"{point.terrestrial_radiation:4d} {point.quality_flag:1d}\n"
                 )
                 f.write(line)
+
+
+class PreviewAdjustment:
+    """Représente un ajustement de température qui sera appliqué."""
+
+    def __init__(
+        self,
+        datetime_str: str,
+        facade_id: str,
+        building_body: str,
+        original_temp: float,
+        adjusted_temp: float,
+        solar_irradiance: float,
+        threshold: float,
+    ):
+        self.datetime_str = datetime_str
+        self.facade_id = facade_id
+        self.building_body = building_body
+        self.original_temp = original_temp
+        self.adjusted_temp = adjusted_temp
+        self.solar_irradiance = solar_irradiance
+        self.threshold = threshold
+
+
+class PreviewResult(NamedTuple):
+    """Résultat de la prévisualisation."""
+
+    facade_combinations: List[Tuple[str, str]]
+    total_adjustments: int
+    adjustments_by_facade: Dict[str, int]
+    sample_adjustments: List[PreviewAdjustment]
+    parameters: Dict[str, Any]
+
+
+def preview_weather_solar_processing(
+    weather_file_path: str,
+    solar_file_path: str,
+    threshold: float,
+    delta_t: float,
+    max_sample_adjustments: int = 20,
+) -> PreviewResult:
+    """
+    Prévisualise les conversions qui vont être appliquées sans générer les fichiers.
+
+    Args:
+        weather_file_path: Chemin vers le fichier météo
+        solar_file_path: Chemin vers le fichier solaire HTML
+        threshold: Seuil d'irradiance solaire en W/m²
+        delta_t: Augmentation de température en °C
+        max_sample_adjustments: Nombre max d'ajustements d'exemple à retourner
+
+    Returns:
+        PreviewResult contenant un résumé des conversions qui seront appliquées
+    """
+    logger.info("Starting preview of facade processing...")
+
+    # Charger les données météo
+    weather_metadata, weather_data = load_weather_data(weather_file_path)
+    logger.info(f"Loaded {len(weather_data)} weather data points")
+
+    # Charger les données solaires
+    solar_metadata, solar_data = load_solar_irridance_data(solar_file_path)
+    logger.info(f"Loaded {len(solar_data)} solar data points")
+
+    # Obtenir les combinaisons façade/bâtiment
+    processor = CoreProcessor()
+    facade_combinations = processor._extract_facade_combinations(solar_metadata)
+    logger.info(f"Found {len(facade_combinations)} facade combinations")
+
+    # Analyser chaque combinaison de façade
+    total_adjustments = 0
+    adjustments_by_facade = {}
+    sample_adjustments = []
+
+    facade_processor = FacadeProcessor(threshold, delta_t)
+
+    for facade_id, building_body in facade_combinations:
+        logger.info(f"Previewing {facade_id} of {building_body}")
+
+        # Trouver la colonne de façade spécifique
+        facade_column = facade_processor._find_facade_column(
+            solar_metadata, facade_id, building_body
+        )
+        if not facade_column:
+            logger.warning(
+                f"No solar data found for facade {facade_id} of {building_body}"
+            )
+            adjustments_by_facade[f"{facade_id}_{building_body}"] = 0
+            continue
+
+        # Créer la table de lookup solaire
+        solar_lookup = facade_processor._create_solar_lookup(solar_data, facade_column)
+
+        # Compter les ajustements pour cette façade
+        facade_adjustments = 0
+        facade_key = f"{facade_id}_{building_body}"
+
+        for weather_point in weather_data:
+            # Trouver la valeur d'irradiance solaire correspondante
+            solar_irradiance = facade_processor._get_solar_irradiance_for_datetime(
+                solar_lookup, weather_point
+            )
+
+            # Vérifier si un ajustement sera appliqué
+            if solar_irradiance is not None and solar_irradiance > threshold:
+                facade_adjustments += 1
+                total_adjustments += 1
+
+                # Ajouter à l'échantillon d'ajustements si pas encore plein
+                if len(sample_adjustments) < max_sample_adjustments:
+                    adjustment = PreviewAdjustment(
+                        datetime_str=f"{weather_point.month:02d}-{weather_point.day:02d} {weather_point.hour:02d}:00",
+                        facade_id=facade_id,
+                        building_body=building_body,
+                        original_temp=weather_point.temperature,
+                        adjusted_temp=weather_point.temperature + delta_t,
+                        solar_irradiance=solar_irradiance,
+                        threshold=threshold,
+                    )
+                    sample_adjustments.append(adjustment)
+
+        adjustments_by_facade[facade_key] = facade_adjustments
+        logger.info(f"Facade {facade_key}: {facade_adjustments} adjustments")
+
+    # Paramètres de traitement
+    parameters = {
+        "threshold": threshold,
+        "delta_t": delta_t,
+        "weather_file": weather_file_path,
+        "solar_file": solar_file_path,
+        "weather_data_points": len(weather_data),
+        "solar_data_points": len(solar_data),
+    }
+
+    result = PreviewResult(
+        facade_combinations=facade_combinations,
+        total_adjustments=total_adjustments,
+        adjustments_by_facade=adjustments_by_facade,
+        sample_adjustments=sample_adjustments,
+        parameters=parameters,
+    )
+
+    logger.info(f"Preview complete. Total adjustments: {total_adjustments}")
+    return result
 
 
 def process_weather_with_solar_data(

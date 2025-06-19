@@ -1,11 +1,25 @@
+import logging
 import tkinter as tk
 
-from core import process_weather_with_solar_data
+from core import preview_weather_solar_processing, process_weather_with_solar_data
+from gui.components.preview_window import show_preview_window
 from gui.services import (
     create_computation_setting,
     create_file_selector,
+    create_preview_button,
     create_trigger_button,
 )
+
+# Configuration du logger pour ce module
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 def main():
@@ -54,6 +68,7 @@ def main():
     params_frame.grid_columnconfigure(0, weight=1)
     params_frame.grid_columnconfigure(1, weight=1)
     params_frame.grid_columnconfigure(2, weight=1)
+    params_frame.grid_columnconfigure(3, weight=1)
 
     # Create computation settings in params_frame
     threshold_setting = create_computation_setting(
@@ -82,7 +97,64 @@ def main():
         sticky="w",
         padx=5,
         pady=5,
-    )  # Create Calculate button using TriggerButton
+    )  # Create Preview and Calculate buttons
+
+    def preview_calculation(weather_file, solar_file, threshold, delta_t):
+        """Fonction de prévisualisation des calculs."""
+        # Extraction des valeurs depuis les objets ComputationSetting si nécessaire
+        if hasattr(threshold, "get_numeric_value"):
+            threshold_value = threshold.get_numeric_value()
+            if threshold_value is None:
+                raise ValueError(f"Invalid threshold value: {threshold.get_value()}")
+        else:
+            threshold_value = float(threshold)
+
+        if hasattr(delta_t, "get_numeric_value"):
+            delta_t_value = delta_t.get_numeric_value()
+            if delta_t_value is None:
+                raise ValueError(f"Invalid delta_t value: {delta_t.get_value()}")
+        else:
+            delta_t_value = float(delta_t)
+
+        # Extraction des noms de fichiers si nécessaire
+        if hasattr(weather_file, "get_filename"):
+            weather_file_path = weather_file.get_filename()
+        else:
+            weather_file_path = weather_file
+
+        if hasattr(solar_file, "get_filename"):
+            solar_file_path = solar_file.get_filename()
+        else:
+            solar_file_path = solar_file
+
+        if not weather_file_path or not solar_file_path:
+            raise ValueError("Both weather and solar files must be selected")
+
+        # Exécuter la prévisualisation
+        preview_result = preview_weather_solar_processing(
+            weather_file_path=weather_file_path,
+            solar_file_path=solar_file_path,
+            threshold=threshold_value,
+            delta_t=delta_t_value,
+        )
+
+        # Retourner le résultat pour l'affichage dans le callback de succès
+        return preview_result
+
+    def preview_success_callback(preview_result):
+        """Callback de succès pour la prévisualisation - exécuté dans le thread principal."""
+        if preview_result:
+            # Afficher la fenêtre de prévisualisation dans le thread principal
+            show_preview_window(root, preview_result)
+            logger.info(
+                f"Prévisualisation terminée! {preview_result.total_adjustments} ajustements détectés."
+            )
+        else:
+            logger.error("Erreur: Aucun résultat de prévisualisation reçu.")
+
+    def preview_error_callback(error):
+        """Callback d'erreur pour la prévisualisation."""
+        logger.error(f"Erreur lors de la prévisualisation: {error}")
 
     def backend_calculation(weather_file, solar_file, threshold, delta_t):
         """Fonction backend pour les calculs."""
@@ -128,9 +200,37 @@ def main():
         for facade, filepath in output_files.items():
             print(f"  {facade}: {filepath}")
 
+        logger.info(
+            f"Calcul terminé! {len(output_files)} fichiers générés dans le dossier 'output'"
+        )
+        for facade, filepath in output_files.items():
+            logger.debug(f"Fichier généré - {facade}: {filepath}")
+
         # Retourner un résultat pour déclencher le callback de succès
         return f"Calcul terminé! {len(output_files)} fichiers générés dans le dossier 'output'"
 
+    # Bouton de prévisualisation
+    preview_button = create_preview_button(
+        parent=params_frame,
+        text="Prévisualiser",
+        preview_function=preview_calculation,
+        on_click_args=[
+            weather_selector,
+            solar_selector,
+            threshold_setting,
+            delta_t_setting,
+        ],
+        success_callback=preview_success_callback,
+        error_callback=preview_error_callback,
+        row=0,
+        column=2,
+        sticky="ew",
+        font=("Arial", 10),
+        relief=tk.RAISED,
+        bg="lightblue",
+    )
+
+    # Bouton de calcul
     calculate_button = create_trigger_button(
         parent=params_frame,
         text="Rechnen",
@@ -144,10 +244,11 @@ def main():
         success_message="Calcul terminé avec succès",
         error_message="Erreur lors du calcul",
         row=0,
-        column=2,
-        sticky="e",
+        column=3,
+        sticky="ew",
         font=("Arial", 10, "bold"),
         relief=tk.RAISED,
+        bg="lightgreen",
     )
 
 
