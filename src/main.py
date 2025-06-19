@@ -28,18 +28,18 @@ def main():
     main_frame.grid_columnconfigure(0, weight=1)
     main_frame.grid_columnconfigure(1, weight=4)
 
-    # Create file input fields using FileSelector components
+    # Create file input fields using create_file_selector function
     weather_selector = create_file_selector(
-        main_frame,
-        "Wetter (.dat):",
+        parent=main_frame,
+        label_text="Wetter:",
         file_extension=".dat",
         file_description="Weather Data Files",
         row=0,
     )
 
     solar_selector = create_file_selector(
-        main_frame,
-        "Solar (.html):",
+        parent=main_frame,
+        label_text="Solar:",
         file_extension=".html",
         file_description="HTML Files",
         row=1,
