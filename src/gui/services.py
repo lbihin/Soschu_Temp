@@ -1,5 +1,6 @@
 from gui.components.computation_setting import ComputationSetting
 from gui.components.file_selector import FileSelector
+from gui.components.trigger_button import TriggerButton
 
 
 def create_file_selector(
@@ -94,3 +95,74 @@ def create_computation_setting(
     setting.grid(row=row, column=column, sticky=sticky, padx=padx, pady=pady)
 
     return setting
+
+
+def create_trigger_button(
+    parent,
+    text="Execute",
+    backend_function=None,
+    mandatory_elements=None,
+    success_message=None,
+    error_message=None,
+    row=0,
+    column=0,
+    columnspan=1,
+    sticky="ew",
+    padx=5,
+    pady=5,
+    **kwargs,
+):
+    """
+    Crée et place un bouton trigger qui se désactive automatiquement
+    si les éléments obligatoires ne sont pas présents.
+
+    Args:
+        parent: Widget parent
+        text: Texte du bouton
+        backend_function: Fonction à exécuter lors du clic
+        mandatory_elements: Liste des éléments obligatoires à vérifier
+        success_message: Message à afficher en cas de succès
+        error_message: Message à afficher en cas d'erreur
+        row: Ligne dans la grille parent
+        column: Colonne dans la grille parent
+        columnspan: Nombre de colonnes à occuper
+        sticky: Alignement dans la grille parent
+        padx: Espacement horizontal
+        pady: Espacement vertical
+        **kwargs: Arguments supplémentaires pour TriggerButton
+
+    Returns:
+        TriggerButton: L'instance du composant créé
+    """
+
+    def default_success_callback(result):
+        if success_message:
+            print(f"Succès: {success_message}")
+        print(f"Résultat: {result}")
+
+    def default_error_callback(error):
+        if error_message:
+            print(f"Erreur: {error_message}")
+        print(f"Détail: {error}")
+
+    button = TriggerButton(
+        parent,
+        text=text,
+        backend_function=backend_function,
+        mandatory_elements=mandatory_elements or [],
+        success_callback=default_success_callback,
+        error_callback=default_error_callback,
+        **kwargs,
+    )
+
+    # Placer le composant dans la grille du parent
+    button.grid(
+        row=row,
+        column=column,
+        columnspan=columnspan,
+        sticky=sticky,
+        padx=padx,
+        pady=pady,
+    )
+
+    return button

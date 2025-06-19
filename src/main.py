@@ -1,7 +1,11 @@
 import tkinter as tk
 
 from gui.components.computation_setting import ComputationSetting
-from gui.services import create_computation_setting, create_file_selector
+from gui.services import (
+    create_computation_setting,
+    create_file_selector,
+    create_trigger_button,
+)
 
 
 def main():
@@ -70,7 +74,7 @@ def main():
         parent=params_frame,
         setting_name="∆T Temperaturerhöhung",
         default_value="7",
-        unit_text="ºC",
+        unit_text="K",
         tooltip_description="Temperaturerhöhung in Grad Celsius",
         validate_numeric=True,
         row=0,
@@ -78,6 +82,34 @@ def main():
         sticky="w",
         padx=5,
         pady=5,
+    )
+
+    # Create Calculate button using TriggerButton
+    def backend_calculation(weather_file, solar_file, threshold, delta_t):
+
+        """Fonction backend pour les calculs."""
+        print(f"Calculating with: Weather={weather_file}, Solar={solar_file}")
+        print(f"Parameters: Threshold={threshold} W/m², Delta T={delta_t}°C")
+
+    calculate_button = create_trigger_button(
+        parent=params_frame,
+        text="Rechnen",
+        backend_function=backend_calculation,
+        mandatory_elements=[
+            weather_selector,
+            solar_selector,
+            threshold_setting,
+            delta_t_setting,
+        ],
+        success_message="Calcul terminé avec succès",
+        error_message="Erreur lors du calcul",
+        row=0,
+        column=2,
+        sticky="e",
+        font=("Arial", 10, "bold"),
+        bg="#4CAF50",
+        fg="white",
+        relief=tk.RAISED,
     )
 
 
