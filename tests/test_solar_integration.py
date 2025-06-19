@@ -25,7 +25,8 @@ class TestSolarIntegrationWithRealFile:
 
         # Test metadata extraction
         assert metadata.title == "Solare Einstrahlung auf die Fassade"
-        assert metadata.object_name == "Solare Einstrahlung auf die Fassade"
+        assert metadata.simulation_date == "19.06.2025 15:34:14 [59]"
+        assert metadata.save_date == "19.06.2025 15:18:26"
         assert len(metadata.facade_columns) == 3
 
         # Test that facade columns follow expected pattern
@@ -62,11 +63,6 @@ class TestSolarIntegrationWithRealFile:
         orientations = metadata.get_facade_orientations()
         assert len(orientations) > 0
         assert all(orient.startswith("f") for orient in orientations)
-
-        # Test summary generation
-        summary = metadata.get_summary()
-        assert "Solar Irradiance Data Summary" in summary
-        assert metadata.title in summary
 
     def test_real_file_data_analysis(self, solar_file_path):
         """Test data analysis functionality."""

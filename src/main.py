@@ -1,11 +1,11 @@
 import tkinter as tk
 
-from gui.components.computation_setting import ComputationSetting
 from gui.services import (
     create_computation_setting,
     create_file_selector,
     create_trigger_button,
 )
+from services import get_solar_irradiance_data_points
 
 
 def main():
@@ -86,23 +86,25 @@ def main():
 
     # Create Calculate button using TriggerButton
     def backend_calculation(weather_file, solar_file, threshold, delta_t):
-
         """Fonction backend pour les calculs."""
+        # Extraction des données des sélecteurs
+        s_data = get_solar_irradiance_data_points(solar_file)
         print(f"Calculating with: Weather={weather_file}, Solar={solar_file}")
         print(f"Parameters: Threshold={threshold} W/m², Delta T={delta_t}°C")
-                
+
         # Simulation d'un traitement qui prend du temps
         import time
+
         time.sleep(2)  # Simule 2 secondes de traitement
-        
+
         # Retourner un résultat pour déclencher le callback de succès
         return f"Calcul terminé! Fichiers: {weather_file[:20]}..., {solar_file[:20]}..."
 
     calculate_button = create_trigger_button(
         parent=params_frame,
         text="Rechnen",
-        backend_function=backend_calculation,
-        mandatory_elements=[
+        execute_on_click=backend_calculation,
+        on_click_args=[
             weather_selector,
             solar_selector,
             threshold_setting,
@@ -121,5 +123,3 @@ def main():
 if __name__ == "__main__":
     main()
     tk.mainloop()
-
-# ∆T Temperaturerhöhung (ºC)

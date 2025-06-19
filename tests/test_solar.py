@@ -103,8 +103,7 @@ class TestSolarFileMetadata:
         """Test creating SolarFileMetadata."""
         metadata = SolarFileMetadata(
             title="Solar Irradiance Test",
-            software="IDA Modeler 5.0",
-            object_name="Test Building",
+            simulation_date="19.06.2025 15:34:14 [59]",
             facade_columns=[
                 "Gesamte solare Einstrahlung, f3$Building body, W/m2",
                 "Gesamte solare Einstrahlung, f4$Building body 2, W/m2",
@@ -112,7 +111,7 @@ class TestSolarFileMetadata:
         )
 
         assert metadata.title == "Solar Irradiance Test"
-        assert metadata.software == "IDA Modeler 5.0"
+        assert metadata.simulation_date == "19.06.2025 15:34:14 [59]"
         assert len(metadata.facade_columns) == 2
 
     def test_get_building_bodies(self):
@@ -145,26 +144,6 @@ class TestSolarFileMetadata:
         assert "f3" in orientations
         assert "f4" in orientations
         assert len(orientations) == 3
-
-    def test_get_summary(self):
-        """Test metadata summary generation."""
-        metadata = SolarFileMetadata(
-            title="Test Solar Data",
-            object_name="Test Building",
-            software="IDA Modeler",
-            simulation_date="19.06.2025 15:34:14",
-            facade_columns=[
-                "Gesamte solare Einstrahlung, f3$Building body, W/m2",
-                "Gesamte solare Einstrahlung, f4$Building body, W/m2",
-            ],
-        )
-
-        summary = metadata.get_summary()
-        assert "Test Solar Data" in summary
-        assert "Test Building" in summary
-        assert "f3" in summary
-        assert "f4" in summary
-        assert "Total Columns: 2" in summary
 
 
 class TestSolarDataParser:

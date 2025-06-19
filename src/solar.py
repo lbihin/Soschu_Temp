@@ -66,11 +66,7 @@ class SolarFileMetadata(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
     title: str = Field(default="", description="Report title")
-    software: str = Field(default="", description="Software name and version")
-    license_info: str = Field(default="", description="License information")
-    object_name: str = Field(default="", description="Object/project name")
     system_path: str = Field(default="", description="System file path")
-    description: str = Field(default="", description="Project description")
     simulation_date: str = Field(default="", description="Simulation date")
     save_date: str = Field(default="", description="File save date")
     facade_columns: List[str] = Field(
@@ -100,22 +96,6 @@ class SolarFileMetadata(BaseModel):
             if match:
                 orientations.add(match.group(1))
         return sorted(list(orientations))
-
-    def get_summary(self) -> str:
-        """Get formatted summary of metadata."""
-        bodies = self.get_building_bodies()
-        orientations = self.get_facade_orientations()
-
-        return (
-            f"Solar Irradiance Data Summary\n"
-            f"Title: {self.title}\n"
-            f"Object: {self.object_name}\n"
-            f"Software: {self.software}\n"
-            f"Simulation: {self.simulation_date}\n"
-            f"Building Bodies: {', '.join(bodies)}\n"
-            f"Facade Orientations: {', '.join(orientations)}\n"
-            f"Total Columns: {len(self.facade_columns)}"
-        )
 
 
 class SolarDataParser:
@@ -182,28 +162,20 @@ class SolarDataParser:
 
         for row in header_rows:
             cells = row.xpath("./td/text()")
-            if len(cells) >= 2:
-                key = cells[0].strip()
-                value = cells[1].strip()
 
-                if "Lizenz" in key:
-                    metadata["license_info"] = value
-                    if "Software" in key or "Dummy" in key:
-                        metadata["software"] = key
-                elif "Objekt" in key:
-                    metadata["object_name"] = value
-                elif "System" in key:
-                    metadata["system_path"] = value
-                elif "Beschreibung" in key:
-                    metadata["description"] = value
-                elif "Simuliert" in key:
-                    metadata["simulation_date"] = value
-                elif "Gespeichert" in key:
-                    metadata["save_date"] = value
-            elif len(cells) == 1:
-                text = cells[0].strip()
-                if "Software" in text or "IDA" in text or "Dummy" in text:
-                    metadata["software"] = text
+            # Skip the row with 'Software' header
+            if len(cells) < 2:
+                continue
+
+            key = cells[0].strip()
+            value = cells[1].strip()
+
+            if "System" in key:
+                metadata["system_path"] = value
+            elif "Simuliert" in key:
+                metadata["simulation_date"] = value
+            elif "Gespeichert" in key:
+                metadata["save_date"] = value
 
         # Extract facade columns from data table header
         metadata["facade_columns"] = self._extract_facade_columns(tree)

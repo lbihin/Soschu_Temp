@@ -100,8 +100,8 @@ def create_computation_setting(
 def create_trigger_button(
     parent,
     text="Execute",
-    backend_function=None,
-    mandatory_elements=None,
+    execute_on_click=None,
+    on_click_args=None,
     success_message=None,
     error_message=None,
     row=0,
@@ -119,8 +119,8 @@ def create_trigger_button(
     Args:
         parent: Widget parent
         text: Texte du bouton
-        backend_function: Fonction à exécuter lors du clic
-        mandatory_elements: Liste des éléments obligatoires à vérifier
+        execute_on_click: Fonction à exécuter lors du clic
+        on_click_args: Liste des widgets dont il faut extraire les valeurs
         success_message: Message à afficher en cas de succès
         error_message: Message à afficher en cas d'erreur
         row: Ligne dans la grille parent
@@ -129,11 +129,31 @@ def create_trigger_button(
         sticky: Alignement dans la grille parent
         padx: Espacement horizontal
         pady: Espacement vertical
-        **kwargs: Arguments supplémentaires pour TriggerButton
+        **kwargs: Arguments supplémentaires pour tk.Button (ex: font, relief, etc.)
 
     Returns:
         TriggerButton: L'instance du composant créé
     """
+
+    def backend_wrapper(*args):
+        """Fonction wrapper qui collecte les valeurs et exécute la fonction backend."""
+        if not execute_on_click:
+            return None
+
+        collected_args = []
+        if on_click_args:
+            for widget in on_click_args:
+                if hasattr(widget, "get_filename"):
+                    # Pour les sélecteurs de fichier (FileSelector)
+                    collected_args.append(widget.get_filename())
+                elif hasattr(widget, "get"):
+                    # Pour les Entry, Text, ComputationSetting, etc.
+                    collected_args.append(widget.get())
+                else:
+                    # Fallback: ajouter le widget lui-même
+                    collected_args.append(widget)
+
+        return execute_on_click(*collected_args)
 
     def default_success_callback(result):
         if success_message:
@@ -145,14 +165,16 @@ def create_trigger_button(
             print(f"Erreur: {error_message}")
         print(f"Détail: {error}")
 
+    # Séparer les arguments de positionnement/style des arguments Tkinter
+    # Les kwargs contiennent uniquement les arguments pour tk.Button (font, relief, etc.)
     button = TriggerButton(
         parent=parent,
         text=text,
-        backend_function=backend_function,
-        mandatory_elements=mandatory_elements or [],
+        backend_function=backend_wrapper,
+        mandatory_elements=on_click_args or [],
         success_callback=default_success_callback,
         error_callback=default_error_callback,
-        **kwargs,
+        **kwargs,  # Seulement les arguments Tkinter valides
     )
 
     # Placer le composant dans la grille du parent
