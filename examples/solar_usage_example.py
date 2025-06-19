@@ -16,7 +16,7 @@ def main():
     """Exemple principal d'utilisation du module solar."""
 
     # Chemin vers le fichier de test
-    test_file = Path("tests/data/solar_test_small.html")
+    test_file = Path("tests/data/Solare Einstrahlung auf die Fassade.html")
 
     if not test_file.exists():
         print(f"Fichier de test non trouvé: {test_file}")
@@ -101,7 +101,7 @@ def main():
 
     # 8. Export des données
     print("\n8. Export CSV:")
-    output_file = Path("solar_example_export.csv")
+    output_file = Path("tests/testing_output/solar_example_export.csv")
     analyzer.export_to_csv(str(output_file))
     print(f"   - Données exportées vers: {output_file}")
     print(f"   - Taille du fichier: {output_file.stat().st_size} bytes")

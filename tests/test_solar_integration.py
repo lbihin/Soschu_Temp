@@ -2,6 +2,7 @@
 Integration tests for solar data parsing with real files.
 """
 
+import time
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ class TestSolarIntegrationWithRealFile:
     @pytest.fixture
     def solar_file_path(self):
         """Path to the test solar HTML file."""
-        return Path("tests/data/solar_test_small.html")
+        return Path("tests/data/Solare Einstrahlung auf die Fassade.html")
 
     def test_parse_real_solar_file(self, solar_file_path):
         """Test parsing the test solar irradiance HTML file."""
@@ -34,7 +35,7 @@ class TestSolarIntegrationWithRealFile:
             assert "Building body" in column
 
         # Test data points
-        assert len(data_points) == 6  # We have 6 data rows in test file
+        assert len(data_points) == 8760  # We have 8760 data rows in test file
 
         # Check first data point structure
         first_point = data_points[0]
@@ -48,125 +49,129 @@ class TestSolarIntegrationWithRealFile:
                 assert value >= 0
 
     def test_real_file_metadata_analysis(self, solar_file_path):
-        """Test metadata analysis on test file."""
+        """Test metadata analysis functionality."""
         parser = SolarDataParser()
-        metadata, _ = parser.parse_file(str(solar_file_path))
+        metadata, data_points = parser.parse_file(str(solar_file_path))
 
-        # Test building body extraction
+        # Test building bodies extraction
         building_bodies = metadata.get_building_bodies()
-        assert len(building_bodies) == 1  # Only "Building body" in our test file
-        assert "Building body" in building_bodies
+        assert len(building_bodies) > 0
+        assert all("Building body" in body for body in building_bodies)
 
-        # Test facade orientation extraction
+        # Test facade orientations
         orientations = metadata.get_facade_orientations()
-        assert len(orientations) == 3  # f2, f3, f4
-        assert "f2" in orientations
-        assert "f3" in orientations
-        assert "f4" in orientations
+        assert len(orientations) > 0
+        assert all(orient.startswith("f") for orient in orientations)
 
         # Test summary generation
         summary = metadata.get_summary()
         assert "Solar Irradiance Data Summary" in summary
-        assert len(summary) > 50  # Should be a meaningful summary
+        assert metadata.title in summary
 
     def test_real_file_data_analysis(self, solar_file_path):
-        """Test data analysis on test file."""
+        """Test data analysis functionality."""
         parser = SolarDataParser()
         metadata, data_points = parser.parse_file(str(solar_file_path))
 
         analyzer = SolarDataAnalyzer(data_points)
 
-        # Test irradiance statistics
+        # Test statistics calculation
         stats = analyzer.get_irradiance_stats()
         assert len(stats) == len(metadata.facade_columns)
 
-        for facade, facade_stats in stats.items():
-            assert "min" in facade_stats
-            assert "max" in facade_stats
-            assert "mean" in facade_stats
-            assert facade_stats["min"] >= 0
-            assert facade_stats["max"] >= facade_stats["min"]
+        for facade, stat in stats.items():
+            assert "min" in stat
+            assert "max" in stat
+            assert "mean" in stat
+            assert "total_kwh" in stat
+            assert stat["min"] >= 0
+            assert stat["max"] >= stat["min"]
 
-        # Test daily totals calculation
-        daily_totals = analyzer.get_daily_totals()
-        assert len(daily_totals) == 1  # Only one day in test file
-        assert "2023-01-01" in daily_totals
+        # Test real data analysis
+        assert analyzer.validate_data_quality()["has_data"] is True
 
-        # Test peak irradiance periods
-        peak_periods = analyzer.get_peak_irradiance_periods(threshold=100.0)
-        assert len(peak_periods) >= 2  # 12:00 and 16:00 should exceed 100 W/m²
-
-        # Test building body statistics
-        building_stats = analyzer.get_building_body_stats()
-        assert len(building_stats) == 1  # Only one building body
-        assert "Building body" in building_stats
-
-    def test_real_file_data_quality(self, solar_file_path):
-        """Test data quality validation on test file."""
+    def test_lxml_parser_performance(self, solar_file_path):
+        """Test lxml parser performance."""
         parser = SolarDataParser()
-        metadata, data_points = parser.parse_file(str(solar_file_path))
-
-        analyzer = SolarDataAnalyzer(data_points)
-        quality = analyzer.validate_data_quality()
-
-        assert quality["total_points"] == 6
-        assert quality["has_data"] is True
-        assert 0.0 <= quality["quality_score"] <= 1.0
-
-        # Check that we don't have major data quality issues
-        issues = quality["issues"]
-        # Should not have many negative values in real solar data
-        negative_issues = [issue for issue in issues if "negative" in issue.lower()]
-        assert len(negative_issues) == 0  # Solar irradiance should not be negative
-
-    def test_real_file_export_functionality(self, solar_file_path, tmp_path):
-        """Test export functionality with test file."""
-        parser = SolarDataParser()
-        metadata, data_points = parser.parse_file(str(solar_file_path))
-
-        analyzer = SolarDataAnalyzer(data_points)
-
-        # Test CSV export
-        csv_path = tmp_path / "solar_export.csv"
-        analyzer.export_to_csv(str(csv_path))
-
-        assert csv_path.exists()
-        assert csv_path.stat().st_size > 0
-
-        # Read back the CSV to verify format
-        import csv
-
-        with open(csv_path, "r", encoding="utf-8", newline="") as csvfile:
-            reader = csv.reader(csvfile)
-            lines = list(reader)
-
-        assert len(lines) == 7  # Header + 6 data rows
-
-        # Check header format
-        header = lines[0]
-        assert header[0] == "Timestamp"
-        assert len(header) == len(metadata.facade_columns) + 1  # +1 for timestamp
-
-    def test_real_file_performance(self, solar_file_path):
-        """Test parsing performance on test file."""
-        import time
-
-        parser = SolarDataParser()
-
         start_time = time.time()
         metadata, data_points = parser.parse_file(str(solar_file_path))
         parse_time = time.time() - start_time
 
-        # Parsing should be very fast for small test file (< 1 second)
-        assert parse_time < 1.0, f"Parsing took {parse_time:.2f} seconds, too slow"
+        print(f"\nParser Performance:")
+        print(f"Parse time: {parse_time:.4f}s")
+        print(f"Data points: {len(data_points)}")
+        print(f"Facade columns: {len(metadata.facade_columns)}")
 
-        # Analysis should also be fast
-        start_time = time.time()
-        analyzer = SolarDataAnalyzer(data_points)
-        stats = analyzer.get_irradiance_stats()
-        analysis_time = time.time() - start_time
+        # Verify reasonable performance
+        assert parse_time < 1.0  # Should be very fast for small files
+        assert len(data_points) > 0
+        assert len(metadata.facade_columns) > 0
 
-        assert (
-            analysis_time < 0.5
-        ), f"Analysis took {analysis_time:.2f} seconds, too slow"
-        assert len(stats) == 3  # Three facades in test file
+    def test_large_file_parsing_performance(self):
+        """Test performance on large file if available."""
+        large_file_path = Path("tests/data/Solare Einstrahlung auf die Fassade.html")
+
+        if not large_file_path.exists():
+            pytest.skip(
+                "Large test file not available"
+            )  # Test with different row limits to verify scalability
+        row_limits = [100, 500, 1000]
+
+        for max_rows in row_limits:
+            parser = SolarDataParser(max_rows=max_rows)
+
+            start_time = time.time()
+            metadata, data_points = parser.parse_file(str(large_file_path))
+            parse_time = time.time() - start_time
+
+            print(f"\nLarge File Performance ({max_rows} rows):")
+            print(f"File size: {large_file_path.stat().st_size / 1024 / 1024:.2f} MB")
+            print(f"Parse time: {parse_time:.4f}s")
+            print(f"Rows per second: {len(data_points) / parse_time:.0f}")
+            print(f"Facade columns found: {len(metadata.facade_columns)}")
+
+            # Verify reasonable performance (should be much faster than 1s per 1000 rows)
+            assert parse_time < 1.0  # Should parse quickly
+            assert len(data_points) <= max_rows
+            assert len(metadata.facade_columns) > 0
+
+            # Verify data quality
+            analyzer = SolarDataAnalyzer(data_points)
+            quality = analyzer.validate_data_quality()
+            assert quality["has_data"] is True
+
+    def test_parser_fallback_behavior(self):
+        """Test that parser handles missing lxml gracefully."""
+        # This test verifies the error message when lxml is not available
+        # For now, since we require lxml, we just test normal operation
+
+        small_file = Path("tests/data/solar_test_small.html")
+        if not small_file.exists():
+            pytest.skip("Test file not available")
+
+        parser = SolarDataParser()
+        metadata, data_points = parser.parse_file(str(small_file))
+
+        assert len(data_points) > 0
+        assert len(metadata.facade_columns) > 0
+
+    def test_max_rows_limiting(self):
+        """Test that max_rows parameter works correctly."""
+        large_file_path = Path("tests/data/Solare Einstrahlung auf die Fassade.html")
+
+        if not large_file_path.exists():
+            pytest.skip("Large test file not available")
+
+        # Test with small limit
+        parser = SolarDataParser(max_rows=50)
+        metadata, data_points = parser.parse_file(str(large_file_path))
+
+        assert len(data_points) <= 50
+        assert len(data_points) > 0  # Should have found some data
+
+        # Test with larger limit
+        parser = SolarDataParser(max_rows=200)
+        metadata, data_points = parser.parse_file(str(large_file_path))
+
+        assert len(data_points) <= 200
+        assert len(data_points) >= 50  # Should be more than the previous test

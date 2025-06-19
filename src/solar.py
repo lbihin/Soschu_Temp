@@ -4,6 +4,8 @@ Solar irradiance data parser for IDA Modeler HTML files.
 This module provides functionality to parse HTML files containing solar irradiance data
 exported from IDA Modeler, which includes hourly solar irradiance values for different
 facade orientations of building bodies.
+
+Performance optimized with lxml for fast parsing of large HTML files.
 """
 
 import logging
@@ -12,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from bs4 import BeautifulSoup, Tag
+from lxml import html as lxml_html
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -117,16 +119,23 @@ class SolarFileMetadata(BaseModel):
 
 
 class SolarDataParser:
-    """Parser for IDA Modeler solar irradiance HTML files."""
+    """High-performance parser for IDA Modeler solar irradiance HTML files using lxml."""
 
-    def __init__(self):
+    def __init__(self, max_rows: Optional[int] = None):
+        """
+        Initialize the parser.
+
+        Args:
+            max_rows: Maximum number of data rows to parse (None for all)
+        """
         self.logger = logging.getLogger(__name__)
+        self.max_rows = max_rows
 
     def parse_file(
         self, file_path: str
     ) -> tuple[SolarFileMetadata, List[SolarDataPoint]]:
         """
-        Parse a solar irradiance HTML file.
+        Parse a solar irradiance HTML file using lxml for optimal performance.
 
         Args:
             file_path: Path to the HTML file
@@ -137,6 +146,7 @@ class SolarDataParser:
         Raises:
             FileNotFoundError: If the file doesn't exist
             ValueError: If the file format is invalid
+            ImportError: If lxml is not available
         """
         path = Path(file_path)
         if not path.exists():
@@ -146,11 +156,10 @@ class SolarDataParser:
 
         try:
             with open(path, "r", encoding="utf-8") as file:
-                content = file.read()
+                tree = lxml_html.parse(file)
 
-            soup = BeautifulSoup(content, "html.parser")
-            metadata = self._parse_metadata(soup)
-            data_points = self._parse_data_table(soup)
+            metadata = self._parse_metadata(tree)
+            data_points = self._parse_data_table(tree, metadata.facade_columns)
 
             self.logger.info(f"Successfully parsed {len(data_points)} data points")
             return metadata, data_points
@@ -159,124 +168,118 @@ class SolarDataParser:
             self.logger.error(f"Error parsing solar file: {e}")
             raise ValueError(f"Failed to parse solar file: {e}")
 
-    def _parse_metadata(self, soup: BeautifulSoup) -> SolarFileMetadata:
-        """Extract metadata from HTML soup."""
+    def _parse_metadata(self, tree) -> SolarFileMetadata:
+        """Extract metadata using lxml XPath."""
         metadata = {}
 
         # Extract title
-        title_tag = soup.find("title")
-        if title_tag:
-            metadata["title"] = title_tag.get_text(strip=True)
+        title_elements = tree.xpath("//title/text()")
+        if title_elements:
+            metadata["title"] = title_elements[0].strip()
 
-        # Extract metadata from header table
-        header_table = soup.find("table", {"border": "0"})
-        if header_table:
-            rows = header_table.find_all("tr")
-            for row in rows:
-                cells = row.find_all("td")
-                if len(cells) >= 2:
-                    key = cells[0].get_text(strip=True)
-                    value = cells[1].get_text(strip=True)
+        # Extract metadata from header table (table with border="0")
+        header_rows = tree.xpath('//table[@border="0"]//tr')
 
-                    if "Lizenz" in key:
-                        metadata["license_info"] = value
-                        if "Software" in key or "Dummy" in key:
-                            metadata["software"] = key
-                    elif "Objekt" in key:
-                        metadata["object_name"] = value
-                    elif "System" in key:
-                        metadata["system_path"] = value
-                    elif "Beschreibung" in key:
-                        metadata["description"] = value
-                    elif "Simuliert" in key:
-                        metadata["simulation_date"] = value
-                    elif "Gespeichert" in key:
-                        metadata["save_date"] = value
-                elif len(cells) == 1:
-                    text = cells[0].get_text(strip=True)
-                    if "Software" in text or "IDA" in text or "Dummy" in text:
-                        metadata["software"] = text
+        for row in header_rows:
+            cells = row.xpath("./td/text()")
+            if len(cells) >= 2:
+                key = cells[0].strip()
+                value = cells[1].strip()
+
+                if "Lizenz" in key:
+                    metadata["license_info"] = value
+                    if "Software" in key or "Dummy" in key:
+                        metadata["software"] = key
+                elif "Objekt" in key:
+                    metadata["object_name"] = value
+                elif "System" in key:
+                    metadata["system_path"] = value
+                elif "Beschreibung" in key:
+                    metadata["description"] = value
+                elif "Simuliert" in key:
+                    metadata["simulation_date"] = value
+                elif "Gespeichert" in key:
+                    metadata["save_date"] = value
+            elif len(cells) == 1:
+                text = cells[0].strip()
+                if "Software" in text or "IDA" in text or "Dummy" in text:
+                    metadata["software"] = text
 
         # Extract facade columns from data table header
-        data_table = soup.find("table", class_="rep")
-        if data_table and isinstance(data_table, Tag):
-            metadata["facade_columns"] = self._extract_facade_columns(data_table)
+        metadata["facade_columns"] = self._extract_facade_columns(tree)
 
         return SolarFileMetadata(**metadata)
 
-    def _extract_facade_columns(self, table: Tag) -> List[str]:
-        """Extract facade column names from table header."""
+    def _extract_facade_columns(self, tree) -> List[str]:
+        """Extract facade column names using XPath."""
         columns = []
 
-        # Look for header rows - find tr elements that contain td elements
-        header_rows = []
-        for row in table.find_all("tr"):
-            if isinstance(row, Tag):
-                # Check if this row contains column headers
-                cells = row.find_all("td")
-                if cells:
-                    header_rows.append(row)
+        # Look for cells in the data table that contain solar irradiance headers
+        xpath_patterns = [
+            '//table[@class="rep"]//td[contains(text(), "Gesamte solare Einstrahlung") and contains(text(), "W/m2")]/text()',
+            '//table[@class="rep"]//td[contains(text(), "Gesamte solare Einstrahlung")]/text()',
+        ]
 
-        # Take first few rows as potential headers
-        for row in header_rows[:3]:  # Check first 3 rows for headers
-            cells = row.find_all("td")
-            for cell in cells:
-                if isinstance(cell, Tag):
-                    text = cell.get_text(strip=True)
-                    # Look for solar irradiance patterns
-                    if "Gesamte solare Einstrahlung" in text and "W/m2" in text:
-                        columns.append(text)
+        for pattern in xpath_patterns:
+            headers = tree.xpath(pattern)
+            for header in headers:
+                header_text = header.strip()
+                if (
+                    "Gesamte solare Einstrahlung" in header_text
+                    and "W/m2" in header_text
+                ):
+                    columns.append(header_text)
+
+            if columns:  # If we found headers, stop trying other patterns
+                break
 
         return columns
 
-    def _parse_data_table(self, soup: BeautifulSoup) -> List[SolarDataPoint]:
-        """Parse data table into SolarDataPoint objects."""
+    def _parse_data_table(
+        self, tree, facade_columns: List[str]
+    ) -> List[SolarDataPoint]:
+        """Parse data table using lxml XPath - optimized for large tables."""
         data_points = []
 
-        data_table = soup.find("table", class_="rep")
-        if not data_table or not isinstance(data_table, Tag):
-            raise ValueError("No data table found in HTML")
+        if not facade_columns:
+            self.logger.warning("No facade columns found, trying to detect from data")
+            facade_columns = self._detect_columns_from_data(tree)
 
-        # Get column headers
-        facade_columns = self._extract_facade_columns(data_table)
         if not facade_columns:
             raise ValueError("No facade columns found in table")
 
-        # Parse data rows - find all tr elements and filter for data rows
-        all_rows = data_table.find_all("tr")
-        data_rows = []
+        # Find data rows that contain timestamp patterns (dd.mm.yyyy hh:mm)
+        timestamp_pattern = r"\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}"
+        data_rows = tree.xpath('//table[@class="rep"]//tr')
 
-        # Skip header rows - look for rows with timestamp-like content
-        for row in all_rows:
-            if isinstance(row, Tag):
-                cells = row.find_all("td")
-                if cells and len(cells) > 1:
-                    first_cell_text = cells[0].get_text(strip=True)
-                    # Check if first cell looks like a timestamp
-                    if re.search(r"\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}", first_cell_text):
-                        data_rows.append(row)
+        row_count = 0
+        for row in data_rows:
+            # Get all cell text content from this row
+            cells = row.xpath("./td/text()")
 
-        for row_num, row in enumerate(data_rows, 1):
+            if not cells or len(cells) < 2:
+                continue
+
+            # Check if first cell contains a timestamp
+            first_cell = cells[0].strip()
+            if not re.search(timestamp_pattern, first_cell):
+                continue
+
             try:
-                cells = row.find_all("td")
-                if len(cells) < 2:  # Need at least timestamp + 1 value
-                    continue
-
-                # Parse timestamp from first cell
-                timestamp_text = cells[0].get_text(strip=True)
-                timestamp = self._parse_timestamp(timestamp_text)
+                # Parse timestamp
+                timestamp = self._parse_timestamp(first_cell)
 
                 # Parse irradiance values
                 irradiance_values = {}
                 for i, column in enumerate(facade_columns):
                     if i + 1 < len(cells):  # +1 because first cell is timestamp
-                        value_text = cells[i + 1].get_text(strip=True)
+                        value_text = cells[i + 1].strip()
                         try:
                             value = float(value_text)
                             irradiance_values[column] = value
                         except ValueError:
                             self.logger.warning(
-                                f"Invalid irradiance value '{value_text}' in row {row_num}"
+                                f"Invalid irradiance value '{value_text}' in row {row_count + 1}"
                             )
                             irradiance_values[column] = 0.0
 
@@ -284,16 +287,41 @@ class SolarDataParser:
                     timestamp=timestamp, irradiance_values=irradiance_values
                 )
                 data_points.append(data_point)
+                row_count += 1
+
+                # Respect max_rows limit
+                if self.max_rows and row_count >= self.max_rows:
+                    self.logger.info(f"Reached max_rows limit: {self.max_rows}")
+                    break
+
+                # Log progress for large files
+                if row_count % 5000 == 0:
+                    self.logger.info(f"Parsed {row_count} data rows...")
 
             except Exception as e:
-                self.logger.warning(f"Failed to parse row {row_num}: {e}")
+                self.logger.warning(f"Failed to parse row {row_count + 1}: {e}")
                 continue
 
         return data_points
 
+    def _detect_columns_from_data(self, tree) -> List[str]:
+        """Try to detect column structure from data rows when headers are not found."""
+        timestamp_pattern = r"\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}"
+        data_rows = tree.xpath('//table[@class="rep"]//tr')
+
+        for row in data_rows:
+            cells = row.xpath("./td/text()")
+            if len(cells) >= 2:
+                first_cell = cells[0].strip()
+                if re.search(timestamp_pattern, first_cell):
+                    # Generate column names based on count
+                    column_count = len(cells) - 1  # Exclude timestamp column
+                    return [f"facade_column_{i+1}" for i in range(column_count)]
+
+        return []
+
     def _parse_timestamp(self, timestamp_text: str) -> datetime:
         """Parse timestamp from various formats."""
-        # Common formats: "01.01.2023 01:00", "1.1.2023 1:00"
         try:
             # Try German format with dots
             return datetime.strptime(timestamp_text, "%d.%m.%Y %H:%M")
@@ -303,7 +331,6 @@ class SolarDataParser:
                 parts = timestamp_text.split()
                 if len(parts) == 2:
                     date_part, time_part = parts
-                    # Parse date part
                     day, month, year = date_part.split(".")
                     hour, minute = time_part.split(":")
                     return datetime(
@@ -433,8 +460,13 @@ class SolarDataAnalyzer:
     def export_to_csv(self, file_path: str) -> None:
         """Export data to CSV format."""
         import csv
+        from pathlib import Path
 
-        with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
+        # Create directory if it doesn't exist
+        path = Path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(path, "w", newline="", encoding="utf-8") as csvfile:
             if not self.data_points:
                 return
 
