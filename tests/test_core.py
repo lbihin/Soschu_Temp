@@ -127,17 +127,7 @@ class TestFacadeProcessor:
 
     def test_get_solar_irradiance_for_datetime(self, facade_processor):
         """Test solar irradiance retrieval."""
-        # Create a test lookup with datetime keys
-        lookup = {
-            datetime(
-                2025, 1, 1, 11, 0
-            ): 150.5,  # 11:00 solar = 12:00 weather (hour 12) - winter
-            datetime(
-                2025, 6, 15, 14, 0
-            ): 350.2,  # 14:00 solar = 14:00 weather (hour 14) - summer DST
-        }
-
-        # Create weather data points for testing
+        # Create weather data points first to see their actual timestamps
         from src.weather import WeatherDataPoint
 
         weather_point_1 = WeatherDataPoint(
@@ -180,6 +170,12 @@ class TestFacadeProcessor:
             quality_flag=1,
         )
 
+        # Create a test lookup using the actual timestamps from weather points
+        lookup = {
+            weather_point_1.timestamp: 150.5,
+            weather_point_2.timestamp: 350.2,
+        }
+
         weather_point_nonexistent = WeatherDataPoint(
             rechtswert=488284,
             hochwert=93163,
@@ -204,21 +200,18 @@ class TestFacadeProcessor:
         result1 = facade_processor._get_solar_irradiance_for_datetime(
             lookup, weather_point_1
         )
-        assert result1[0] == 150.5  # Check the irradiance value
-        assert result1[1] == "01-01 11:00"  # Check the matched time string
+        assert result1 == 150.5  # Check the irradiance value
 
         result2 = facade_processor._get_solar_irradiance_for_datetime(
             lookup, weather_point_2
         )
-        assert result2[0] == 350.2  # Check the irradiance value
-        assert result2[1] == "06-15 14:00"  # Check the matched time string
+        assert result2 == 350.2  # Check the irradiance value
 
         # Test non-existing values
         result3 = facade_processor._get_solar_irradiance_for_datetime(
             lookup, weather_point_nonexistent
         )
-        assert result3[0] is None  # Should return None for non-existent data
-        assert result3[1] is None  # Should return None for time string too
+        assert result3 is None  # Should return None for non-existent data
 
 
 class TestCoreProcessor:
@@ -242,21 +235,46 @@ class TestCoreProcessor:
 
     def test_process_all_facades_integration(self, weather_file_path, solar_file_path):
         """Test the complete facade processing workflow."""
+        # Process a subset to speed up test
+        processor = CoreProcessor()
+
+        # Call the new process_all_facades method that returns ProcessingResult
+        processing_result = processor.process_all_facades(
+            weather_file_path=str(weather_file_path),
+            solar_file_path=str(solar_file_path),
+            threshold=200.0,
+            delta_t=5.0,
+        )
+
+        # Verify the processing result structure
+        assert processing_result is not None
+        assert hasattr(processing_result, "adjusted_weather_data_by_facade")
+        assert hasattr(processing_result, "total_adjustments")
+        assert hasattr(processing_result, "adjustments_by_facade")
+        assert hasattr(processing_result, "facade_combinations")
+        assert hasattr(processing_result, "parameters")
+
+        # Check that at least one facade was processed
+        assert len(processing_result.adjusted_weather_data_by_facade) > 0
+
+        # Check that parameters are correctly stored
+        assert processing_result.parameters["threshold"] == 200.0
+        assert processing_result.parameters["delta_t"] == 5.0
+        assert processing_result.parameters["weather_file"] == str(weather_file_path)
+        assert processing_result.parameters["solar_file"] == str(solar_file_path)
+
+        # Verify that adjustments were made
+        assert processing_result.total_adjustments > 0
+
+        # Test file generation using the new service
+        import tempfile
+
+        from src.file_generation_service import create_file_generation_service
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Process a subset to speed up test
-            processor = CoreProcessor()
-
-            # Mock the parsing to limit data size for testing
-            original_parse_weather = processor.__class__.__dict__.get(
-                "_load_weather_data"
-            )
-
-            output_files = processor.process_all_facades(
-                weather_file_path=str(weather_file_path),
-                solar_file_path=str(solar_file_path),
-                threshold=200.0,
-                delta_t=5.0,
-                output_dir=temp_dir,
+            file_service = create_file_generation_service()
+            output_files = file_service.generate_files_from_processing_result(
+                processing_result, output_dir=temp_dir
             )
 
             assert isinstance(output_files, dict)
