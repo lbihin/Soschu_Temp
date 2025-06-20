@@ -32,7 +32,9 @@ class PreviewWindow:
         self.generate_callback = generate_callback
         self.window = None
 
-    def _generate_preview_summary(self, preview_service: PreviewService) -> PreviewSummaryData:
+    def _generate_preview_summary(
+        self, preview_service: PreviewService
+    ) -> PreviewSummaryData:
         """Génèrate the data for the summary tab."""
         return preview_service.get_summary()
 
@@ -100,15 +102,20 @@ class PreviewWindow:
         info_title.pack(fill=tk.X, pady=5)
 
         info_text = f"""
-Nombre de Façades à traiter: {self.summary.count_facades}
-Total d'ajustements de température: {self.summary.count_adjustments}
-Nombre de points fichier météo: {self.summary.count_weather_data_points}
-Nombre  de points fichier irradiance solaire: {self.summary.count_weather_data_points}
+Fichiers d´entrée:
+    • Météo: {self.summary.weather_filename}
+    • IDA ICE: {self.summary.solar_filename}
+
+Résumé des données:
+    • Nombre de Façades à traiter: {self.summary.count_facades}
+    • Total d'ajustements de température: {self.summary.count_adjustments}
+    • Nombre de points fichier météo: {self.summary.count_weather_data_points}
+    • Nombre  de points fichier irradiance solaire: {self.summary.count_weather_data_points}
 
 Paramètres de traitement:
-• Seuil d'irradiance: {self.summary.threshold} W/m²
-• Augmentation de température: {self.summary.delta_t} K
-        """.strip()
+    • Seuil d'irradiance: {self.summary.threshold} W/m²
+    • Augmentation de température: {self.summary.delta_t} K
+                """.strip()
 
         info_label = tk.Label(info_frame, text=info_text, justify=tk.LEFT, anchor="w")
         info_label.pack(fill=tk.X, padx=10, pady=5)
@@ -143,17 +150,19 @@ Paramètres de traitement:
         # Ajouter les données
 
         # Configure tags for alternating row colors
-        tree.tag_configure('oddrow', background='#f0f0f0')
-        tree.tag_configure('evenrow', background='white')
-        
+        tree.tag_configure("oddrow", background="#f0f0f0")
+        tree.tag_configure("evenrow", background="white")
+
         # Add the data with alternating background colors
-        for i, (facade_name, (adjustments, percentage)) in enumerate(self.summary.table.items()):
+        for i, (facade_name, (adjustments, percentage)) in enumerate(
+            self.summary.table.items()
+        ):
             tree.insert(
                 "",
                 tk.END,
                 text=facade_name,
                 values=(f"{adjustments}", f"{percentage:.1f}%"),
-                tags=('oddrow' if i % 2 else 'evenrow')
+                tags=("oddrow" if i % 2 else "evenrow"),
             )
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)

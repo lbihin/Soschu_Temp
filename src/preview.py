@@ -31,6 +31,12 @@ class PreviewSummaryData(BaseModel):
     table: Dict[str, tuple[int, float]] = Field(
         default_factory=dict, description="Tableau de résumé des façades"
     )
+    weather_filename: str = Field(
+        ..., description="Nom du fichier météo utilisé pour le traitement"
+    )
+    solar_filename: str = Field(
+        ..., description="Nom du fichier solaire utilisé pour le traitement"
+    )
 
     @classmethod
     def from_processing_result(
@@ -49,6 +55,9 @@ class PreviewSummaryData(BaseModel):
             facade.get_full_name(): (facade.adjustments_count, facade.get_percentage_adjusted())
             for facade in processing_result.data.values()
         }
+
+        weather_filename = processing_result.weather_file
+        solar_filename = processing_result.solar_file
         
         return cls(
             count_facades=processing_result.count_facades(),
@@ -57,6 +66,8 @@ class PreviewSummaryData(BaseModel):
             count_solar_data_points=processing_result.count_solar_data_points(),
             threshold=processing_result.threshold,
             delta_t=processing_result.delta_t,
+            weather_filename=weather_filename,
+            solar_filename=solar_filename,
             table=table,
         )
 
