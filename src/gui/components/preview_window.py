@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, List, Optional
 
-from core import PreviewAdjustment, PreviewResult
+from core import PreviewResult
 
 # Configuration du logger pour ce module
 logger = logging.getLogger(__name__)

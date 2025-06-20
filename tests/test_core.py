@@ -129,10 +129,12 @@ class TestFacadeProcessor:
         """Test solar irradiance retrieval."""
         # Create a test lookup with datetime keys
         lookup = {
-            datetime(2025, 1, 1, 11, 0): 150.5,  # 11:00 solar = 12:00 weather (hour 12)
             datetime(
-                2025, 6, 15, 13, 0
-            ): 350.2,  # 13:00 solar = 14:00 weather (hour 14)
+                2025, 1, 1, 11, 0
+            ): 150.5,  # 11:00 solar = 12:00 weather (hour 12) - winter
+            datetime(
+                2025, 6, 15, 14, 0
+            ): 350.2,  # 14:00 solar = 14:00 weather (hour 14) - summer DST
         }
 
         # Create weather data points for testing
@@ -209,7 +211,7 @@ class TestFacadeProcessor:
             lookup, weather_point_2
         )
         assert result2[0] == 350.2  # Check the irradiance value
-        assert result2[1] == "06-15 13:00"  # Check the matched time string
+        assert result2[1] == "06-15 14:00"  # Check the matched time string
 
         # Test non-existing values
         result3 = facade_processor._get_solar_irradiance_for_datetime(

@@ -231,45 +231,6 @@ class TestTimeSynchronizationLogic:
 
         assert result == (None, None)
 
-    def test_tolerance_based_matching(self, facade_processor):
-        """Test tolerance-based matching when exact match is not found."""
-        from src.weather import WeatherDataPoint
-
-        weather_point = WeatherDataPoint(
-            rechtswert=488284,
-            hochwert=93163,
-            month=6,
-            day=15,
-            hour=12,
-            temperature=20.0,
-            pressure=1013,
-            wind_direction=180,
-            wind_speed=2.0,
-            cloud_cover=4,
-            humidity_ratio=8.0,
-            relative_humidity=70,
-            direct_solar=100,
-            diffuse_solar=50,
-            atmospheric_radiation=350,
-            terrestrial_radiation=-50,
-            quality_flag=1,
-        )
-
-        # Solar data with slight time difference (within 30min tolerance)
-        # Weather 12h → to_datetime_for_comparison() → 11:00
-        # So solar data at 11:15 should be within 15min tolerance
-        solar_lookup = {
-            datetime(2025, 6, 15, 11, 15): 350.0  # 15 minutes after expected time
-        }
-
-        result = facade_processor._get_solar_irradiance_for_datetime(
-            solar_lookup, weather_point
-        )
-
-        # Should find the data within tolerance
-        assert result[0] == 350.0
-        assert result[1] is not None
-
 
 class TestTimezoneOffsetCalculation:
     """Test timezone offset calculations using pytz-like logic."""

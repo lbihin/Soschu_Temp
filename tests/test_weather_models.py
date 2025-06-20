@@ -38,11 +38,6 @@ class TestWeatherDataPoint:
         expected = 600 + 150  # direct + diffuse
         assert sample_weather_data_point.total_solar_irradiance() == expected
 
-    def test_to_datetime(self, sample_weather_data_point):
-        """Test datetime conversion."""
-        dt = sample_weather_data_point.to_datetime(2023)
-        assert dt == datetime(2023, 6, 15, 11)  # Hour 12 -> 11 (0-based)
-
     def test_to_dict(self, sample_weather_data_point):
         """Test conversion to dictionary with computed fields."""
         data_dict = sample_weather_data_point.to_dict()

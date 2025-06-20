@@ -10,7 +10,7 @@ Performance optimized with lxml for fast parsing of large HTML files.
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -27,7 +27,9 @@ class SolarDataPoint(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-    timestamp: datetime = Field(..., description="Date and time of measurement")
+    timestamp: datetime = Field(
+        ..., description="Naive datetime with hours 1-24 format"
+    )
     irradiance_values: Dict[str, float] = Field(
         default_factory=dict,
         description="Solar irradiance values for each facade [W/m²]",
@@ -41,6 +43,31 @@ class SolarDataPoint(BaseModel):
             if value < 0:
                 raise ValueError(f"Irradiance value for {facade} must be non-negative")
         return v
+
+    def to_datetime_for_gui(self) -> str:
+        """
+        Convert to formatted string for GUI display.
+
+        Returns:
+            String in format "DD.MM.YYYY HH:MM" for display using 1-24 hour format
+        """
+        # Convert 0-23 hour format to 1-24 for consistency
+        display_hour = 24 if self.timestamp.hour == 0 else self.timestamp.hour
+        # If hour was 0 (midnight), show as previous day hour 24
+        if self.timestamp.hour == 0:
+            prev_day = self.timestamp - timedelta(days=1)
+            return f"{prev_day.day:02d}.{prev_day.month:02d}.{prev_day.year} 24:00"
+        else:
+            return f"{self.timestamp.day:02d}.{self.timestamp.month:02d}.{self.timestamp.year} {display_hour:02d}:00"
+
+    def get_hour_24_format(self) -> int:
+        """
+        Get hour in 1-24 format for consistency with weather data.
+
+        Returns:
+            Hour in 1-24 format (midnight becomes 24 of previous day)
+        """
+        return 24 if self.timestamp.hour == 0 else self.timestamp.hour
 
     def get_total_irradiance(self) -> float:
         """Calculate total irradiance across all facades."""
@@ -274,7 +301,60 @@ class SolarDataParser:
                 self.logger.warning(f"Failed to parse row {row_count + 1}: {e}")
                 continue
 
+        # IDA workaround: IDA files do not provide a data point for the first hour (00:00)
+        # to overcome this, we duplicate the data point of the first hour (01:00) to 00:00
+        data_points = self._apply_ida_workaround(data_points)
+
         return data_points
+
+    def _apply_ida_workaround(
+        self, data_points: List[SolarDataPoint]
+    ) -> List[SolarDataPoint]:
+        """
+        Apply IDA workaround for missing 00:00 hour data.
+
+        IDA files do not provide a data point for the first hour (00:00).
+        To overcome this, we duplicate the data point of the first hour (01:00) to 00:00.
+
+        Args:
+            data_points: List of parsed solar data points
+
+        Returns:
+            List of data points with 00:00 hour added if necessary
+        """
+        if not data_points:
+            return data_points
+
+        # Check if we need to apply the workaround
+        first_dp = data_points[0]
+        if first_dp.timestamp.hour != 1:
+            # No workaround needed - either starts at 00:00 or some other hour
+            return data_points
+
+        self.logger.debug(
+            f"Applying IDA workaround: duplicating {first_dp.timestamp} data to 00:00"
+        )
+
+        # Create 00:00 data point based on 01:00 data
+        zero_hour_dp = SolarDataPoint(
+            timestamp=datetime(
+                year=first_dp.timestamp.year,
+                month=first_dp.timestamp.month,
+                day=first_dp.timestamp.day,
+                hour=0,
+                minute=0,
+            ),
+            irradiance_values=first_dp.irradiance_values.copy(),
+        )
+
+        # Insert at the beginning
+        result = [zero_hour_dp] + data_points
+
+        self.logger.debug(
+            f"IDA workaround applied: added 00:00 data point with {len(zero_hour_dp.irradiance_values)} facade values"
+        )
+
+        return result
 
     def _detect_columns_from_data(self, tree) -> List[str]:
         """Try to detect column structure from data rows when headers are not found."""
@@ -293,10 +373,17 @@ class SolarDataParser:
         return []
 
     def _parse_timestamp(self, timestamp_text: str) -> datetime:
-        """Parse timestamp from various formats."""
+        """
+        Parse timestamp from various formats and convert to standardized format.
+
+        Solar data typically uses 0-23 hours. We convert to datetime maintaining
+        the actual time but add a method to get the 1-24 equivalent when needed.
+        """
+        parsed_dt = None
+
         try:
             # Try German format with dots
-            return datetime.strptime(timestamp_text, "%d.%m.%Y %H:%M")
+            parsed_dt = datetime.strptime(timestamp_text, "%d.%m.%Y %H:%M")
         except ValueError:
             try:
                 # Try without leading zeros
@@ -305,13 +392,16 @@ class SolarDataParser:
                     date_part, time_part = parts
                     day, month, year = date_part.split(".")
                     hour, minute = time_part.split(":")
-                    return datetime(
+                    parsed_dt = datetime(
                         int(year), int(month), int(day), int(hour), int(minute)
                     )
             except (ValueError, IndexError):
                 pass
 
-        raise ValueError(f"Cannot parse timestamp: {timestamp_text}")
+        if parsed_dt is None:
+            raise ValueError(f"Cannot parse timestamp: {timestamp_text}")
+
+        return parsed_dt
 
 
 def load_solar_irridance_data(

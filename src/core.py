@@ -8,10 +8,11 @@ solar irradiance thresholds for different facade orientations of building bodies
 import logging
 import re
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
+from config import Config
 from solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
 from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
 
@@ -71,7 +72,8 @@ class FacadeProcessor:
         solar_data: List[SolarDataPoint],
         facade_id: str,
         building_body: str,
-    ) -> Tuple[WeatherFileMetadata, List[WeatherDataPoint]]:
+    # ) -> Tuple[WeatherFileMetadata, List[WeatherDataPoint]]:
+    ) -> List[WeatherDataPoint]:
         """
         Process weather data for a specific facade of a building body.
 
@@ -96,7 +98,7 @@ class FacadeProcessor:
             self.logger.warning(
                 f"No solar data found for facade {facade_id} of {building_body}"
             )
-            return weather_metadata, weather_data
+            return weather_data
 
         self.logger.info(f"Found solar column: {facade_column}")
 
@@ -112,8 +114,8 @@ class FacadeProcessor:
             adjusted_point = deepcopy(weather_point)
 
             # Find corresponding solar irradiance value
-            solar_irradiance, matched_solar_time = (
-                self._get_solar_irradiance_for_datetime(solar_lookup, weather_point)
+            solar_irradiance = self._get_solar_irradiance_for_datetime(
+                solar_lookup, weather_point
             )
 
             # Apply temperature adjustment if threshold is exceeded
@@ -132,12 +134,12 @@ class FacadeProcessor:
             f"Made {adjustments_made} temperature adjustments out of {len(weather_data)} data points"
         )
 
-        # Create adjusted metadata
-        adjusted_metadata = self._create_adjusted_metadata(
-            weather_metadata, facade_id, building_body, adjustments_made
-        )
+        # # Create adjusted metadata
+        # adjusted_metadata = self._create_adjusted_metadata(
+        #     weather_metadata, facade_id, building_body, adjustments_made
+        # )
 
-        return adjusted_metadata, adjusted_weather_data
+        return adjusted_weather_data
 
     def _find_facade_column(
         self, solar_metadata: SolarFileMetadata, facade_id: str, building_body: str
@@ -193,135 +195,23 @@ class FacadeProcessor:
         self,
         solar_lookup: Dict[datetime, float],
         weather_point: WeatherDataPoint,
-    ) -> Tuple[Optional[float], Optional[str]]:
+    ) -> Optional[float]:
         """
-        Get solar irradiance value for specific weather data point.
+        Get solar irradiance value for a specific weather data point.
 
-        Handles MEZ/MESZ differences correctly:
-        - Weather data: constant MEZ (UTC+1h)
-        - Solar data: MEZ (UTC+1h) in winter, MESZ (UTC+2h) in summer
+        This method searches for a matching timestamp in the solar lookup dictionary
+        and returns the corresponding irradiance value when found.
 
-        In winter (MEZ): both at same UTC offset, but weather shows 1h ahead
-        In summer (MESZ): both should have same local time
+            solar_lookup: Dictionary mapping datetime objects to solar irradiance values
+            weather_point: Weather data point containing the timestamp to look up
 
-        Args:
-            solar_lookup: Solar irradiance lookup table
-            weather_point: Weather data point to find solar irradiance for
-
-        Returns:
-            Tuple of (Solar irradiance value in W/m², matched solar datetime string) or (None, None) if not found
+            float: Solar irradiance value in W/m² if a matching timestamp is found
+            None: If no matching timestamp exists in the lookup table
         """
-        # Try direct lookup first (for cases where years match)
-        weather_dt = weather_point.to_datetime_for_comparison()
-        irradiance = solar_lookup.get(weather_dt)
-
-        if irradiance is not None:
-            matched_solar_time = (
-                f"{weather_dt.month:02d}-{weather_dt.day:02d} {weather_dt.hour:02d}:00"
-            )
-            return irradiance, matched_solar_time
-
-        # Determine if this date is in DST (MESZ) or standard time (MEZ)
-        weather_month = weather_point.month
-        weather_day = weather_point.day
-        is_summer = is_dst_date(weather_month, weather_day)
-
-        # Calculate the correct solar hour based on timezone rules:
-        # - Weather data: constant MEZ (UTC+1)
-        # - Solar data: MEZ (UTC+1) in winter, MESZ (UTC+2) in summer
-
-        if is_summer:
-            # Summer: Solar data in MESZ (UTC+2), Weather in MEZ (UTC+1)
-            # Need to add 1h to weather time to match solar time
-            target_solar_hour = (
-                weather_point.hour
-            )  # Weather 1-24, add 1h, then convert to 0-23
-        else:
-            # Winter: Both in MEZ (UTC+1)
-            # Weather time 1-24 should match solar time 0-23 directly (minus 1 for 0-based)
-            target_solar_hour = (
-                weather_point.hour - 1
-            )  # Convert weather 1-24 to solar 0-23
-
-        # Ensure hour is within valid range
-        if target_solar_hour < 0:
-            target_solar_hour = 0
-        elif target_solar_hour > 23:
-            target_solar_hour = 23
-
-        # Search for matching solar data
-        for solar_dt, solar_irradiance in solar_lookup.items():
-            if (
-                solar_dt.month == weather_month
-                and solar_dt.day == weather_day
-                and solar_dt.hour == target_solar_hour
-            ):
-                season_info = "MESZ (été)" if is_summer else "MEZ (hiver)"
-                self.logger.debug(
-                    f"Found solar data by date/time match ({season_info}): "
-                    f"Weather: {weather_month:02d}-{weather_day:02d} {weather_point.hour:02d}:00, "
-                    f"Solar: {solar_dt}"
-                )
-                matched_solar_time = (
-                    f"{solar_dt.month:02d}-{solar_dt.day:02d} {solar_dt.hour:02d}:00"
-                )
-                return solar_irradiance, matched_solar_time
-
-        # If still no match, try a tolerance-based search
-        for solar_dt, solar_irradiance in solar_lookup.items():
-            # Create comparable datetimes with same year
-            weather_dt_adjusted = weather_dt.replace(year=solar_dt.year)
-            time_diff = abs((weather_dt_adjusted - solar_dt).total_seconds())
-            if time_diff <= 1800:  # 30 minutes tolerance
-                self.logger.debug(
-                    f"Found solar data with {time_diff/60:.1f} min difference: "
-                    f"Weather: {weather_dt_adjusted}, Solar: {solar_dt}"
-                )
-                matched_solar_time = (
-                    f"{solar_dt.month:02d}-{solar_dt.day:02d} {solar_dt.hour:02d}:00"
-                )
-                return solar_irradiance, matched_solar_time
-
-        return None, None
-
-    def _create_adjusted_metadata(
-        self,
-        original_metadata: WeatherFileMetadata,
-        facade_id: str,
-        building_body: str,
-        adjustments_made: int,
-    ) -> WeatherFileMetadata:
-        """
-        Create adjusted weather metadata with processing information.
-
-        Args:
-            original_metadata: Original weather metadata
-            facade_id: Facade identifier
-            building_body: Building body identifier
-            adjustments_made: Number of temperature adjustments made
-
-        Returns:
-            Adjusted weather metadata
-        """
-        # Create a copy of the original metadata
-        adjusted_metadata = deepcopy(original_metadata)
-
-        # Add processing information to data basis fields
-        processing_info = (
-            f"Processed for {facade_id} of {building_body} - "
-            f"Threshold: {self.threshold} W/m², Delta T: {self.delta_t}°C, "
-            f"Adjustments: {adjustments_made}"
-        )
-
-        # Update one of the data basis fields with processing info
-        if adjusted_metadata.data_basis_3:
-            adjusted_metadata.data_basis_3 = (
-                f"{adjusted_metadata.data_basis_3} | {processing_info}"
-            )
-        else:
-            adjusted_metadata.data_basis_3 = processing_info
-
-        return adjusted_metadata
+        for lookup_solar_dt, solar_irradiance in solar_lookup.items():
+            # Compare naive timestamps directly
+            if weather_point.timestamp == lookup_solar_dt:
+                return solar_irradiance
 
 
 class CoreProcessor:
@@ -353,13 +243,20 @@ class CoreProcessor:
         """
         self.logger.info("Starting facade processing...")
 
-        # Load weather data
-        weather_metadata, weather_data = load_weather_data(weather_file_path)
-        self.logger.info(f"Loaded {len(weather_data)} weather data points")
-
+        # IMPORTANT: Extract year from first solar data point to set config. Make sure this operation take place before loading the weather data
+        # This is important to ensure the year is set correctly for the weather data processing. This is key for direct matching of solar and weather data.
+        
         # Load solar data
         solar_metadata, solar_data = load_solar_irridance_data(solar_file_path)
         self.logger.info(f"Loaded {len(solar_data)} solar data points")
+
+        if solar_data:
+            config = Config()
+            config.year = solar_data[0].timestamp.year
+
+        # Load weather data
+        weather_metadata, weather_data = load_weather_data(weather_file_path)
+        self.logger.info(f"Loaded {len(weather_data)} weather data points")
 
         # Get all facade/building body combinations
         facade_combinations = self._extract_facade_combinations(solar_metadata)
@@ -382,7 +279,7 @@ class CoreProcessor:
             self.logger.info(f"Processing {facade_id} of {building_body}")
 
             # Process the facade
-            adjusted_metadata, adjusted_weather_data = (
+            adjusted_weather_data = (
                 facade_processor.process_facade_data(
                     weather_metadata,
                     weather_data,
@@ -401,7 +298,7 @@ class CoreProcessor:
 
             # Save adjusted weather data
             self.save_weather_data(
-                output_file_path, adjusted_metadata, adjusted_weather_data
+                output_file_path, weather_metadata, adjusted_weather_data
             )
 
             facade_key = f"{facade_id}_{building_body}"
@@ -538,13 +435,13 @@ def preview_weather_solar_processing(
     """
     logger.info("Starting preview of facade processing...")
 
-    # Charger les données météo
-    weather_metadata, weather_data = load_weather_data(weather_file_path)
-    logger.info(f"Loaded {len(weather_data)} weather data points")
-
     # Charger les données solaires
     solar_metadata, solar_data = load_solar_irridance_data(solar_file_path)
     logger.info(f"Loaded {len(solar_data)} solar data points")
+
+    # Charger les données météo
+    weather_metadata, weather_data = load_weather_data(weather_file_path)
+    logger.info(f"Loaded {len(weather_data)} weather data points")
 
     # Obtenir les combinaisons façade/bâtiment
     processor = CoreProcessor()
