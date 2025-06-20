@@ -304,6 +304,9 @@ class CoreProcessor:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
+        # Extract base name from weather file (without extension)
+        weather_file_base = Path(weather_file_path).stem
+
         # Process each facade combination
         facade_processor = FacadeProcessor(threshold, delta_t)
         output_files = {}
@@ -323,10 +326,10 @@ class CoreProcessor:
                 )
             )
 
-            # Generate output filename
+            # Generate output filename based on original weather file name
             safe_facade = facade_id.replace("$", "_")
             safe_building = building_body.replace(" ", "_").replace("$", "_")
-            output_filename = f"weather_{safe_facade}_{safe_building}.dat"
+            output_filename = f"{weather_file_base}_{safe_facade}_{safe_building}.dat"
             output_file_path = output_path / output_filename
 
             # Save adjusted weather data
