@@ -28,7 +28,7 @@ class PreviewSummaryData(BaseModel):
     )
     threshold: int = Field(..., description="Seuil d'irradiance pour les ajustements")
     delta_t: int = Field(..., description="Delta T pour les ajustements de température")
-    table: Dict[str, int] = Field(
+    table: Dict[str, tuple[int, float]] = Field(
         default_factory=dict, description="Tableau de résumé des façades"
     )
 
@@ -46,7 +46,7 @@ class PreviewSummaryData(BaseModel):
             Instance de PreviewSummaryData
         """
         table = {
-            facade.get_full_name(): facade.adjustments_count
+            facade.get_full_name(): (facade.adjustments_count, facade.get_percentage_adjusted())
             for facade in processing_result.data.values()
         }
         

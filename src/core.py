@@ -44,7 +44,7 @@ class FacadeProcessingResult(BaseModel):
             Total number of weather data points
         """
         return len(self.wheater_data)
-    
+
     def count_solar_data_points(self) -> int:
         """
         Count the total number of solar data points processed for this facade.
@@ -53,11 +53,21 @@ class FacadeProcessingResult(BaseModel):
             Total number of solar data points
         """
         return len(self.solar_data)
-    
+
     def get_full_name(self) -> str:
-        """        Get a full descriptive name for this facade processing result."""
+        """Get a full descriptive name for this facade processing result."""
         return f"{self.facade_id} {self.building_body}"
     
+    def get_percentage_adjusted(self) -> float:
+        """
+        Calculate the percentage of weather data points that were adjusted.
+
+        Returns:
+            Percentage of adjusted data points
+        """
+        if not self.wheater_data:
+            return 0.0
+        return (self.adjustments_count / self.count_solar_data_points()) * 100.0    
 
 
 class ProcessingResult(BaseModel):

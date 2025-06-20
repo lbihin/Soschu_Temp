@@ -125,22 +125,47 @@ Paramètres de traitement:
         )
         facade_title.pack(fill=tk.X, pady=5)
 
-        # Tableau des façades
-        facade_text = "Façade\t\t\tAjustements\n" + "-" * 50 + "\n"
-        for (
-            facade_name,
-            adjustments,
-        ) in self.summary.table.items():
-            facade_text += f"{facade_name.ljust(25)}\t{adjustments}\n"
+        # Créer un Treeview pour afficher les façades
+        tree_frame = tk.Frame(facade_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        facade_label = tk.Label(
-            facade_frame,
-            text=facade_text,
-            justify=tk.LEFT,
-            anchor="nw",
-            font=("Courier", 10),
+        tree = ttk.Treeview(
+            tree_frame, columns=("adjustments", "percentage"), show="tree headings"
         )
-        facade_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        tree.heading("#0", text="Façade")
+        tree.heading("#1", text="Ajustements")
+        tree.heading("#2", text="% des données")
+
+        tree.column("#0", width=100, anchor="center")
+        tree.column("#1", width=150, anchor="center")
+        tree.column("#2", width=150, anchor="center")
+
+        # Ajouter les données
+        for facade_name, (adjustments, percentage) in self.summary.table.items():
+
+            # Configure tags for alternating row colors
+            tree.tag_configure('oddrow', background='#f0f0f0')
+            tree.tag_configure('evenrow', background='white')
+            
+            # Add the data with alternating background colors
+            for i, (facade_name, (adjustments, percentage)) in enumerate(self.summary.table.items()):
+                tree.insert(
+                    "",
+                    tk.END,
+                    text=facade_name,
+                    values=(f"{adjustments}", f"{percentage:.1f}%"),
+                    tags=('oddrow' if i % 2 else 'evenrow')
+                )
+        # Scrollbars
+        v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
+        h_scrollbar = ttk.Scrollbar(
+            tree_frame, orient=tk.HORIZONTAL, command=tree.xview
+        )
+        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def _create_facade_details_tab(self, notebook):
         """Crée l'onglet des détails par façade."""
