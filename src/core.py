@@ -19,6 +19,35 @@ from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
 logger = logging.getLogger(__name__)
 
 
+def is_dst_date(month: int, day: int) -> bool:
+    """
+    Détermine si une date est en heure d'été (MESZ) selon les règles européennes.
+
+    L'heure d'été en Europe commence le dernier dimanche de mars
+    et se termine le dernier dimanche d'octobre.
+
+    Args:
+        month: Mois (1-12)
+        day: Jour (1-31)
+
+    Returns:
+        True si la date est en MESZ (heure d'été), False sinon (MEZ)
+    """
+    # Approximation simple mais efficace pour la détection MESZ/MEZ
+    if month < 3 or month > 10:
+        return False  # Janvier, février, novembre, décembre = MEZ
+    elif month > 3 and month < 10:
+        return True  # Avril à septembre = MESZ
+    elif month == 3:
+        return day >= 31  # Fin mars, conservateur (31 mars souvent le changement)
+    elif month == 10:
+        return (
+            day <= 26
+        )  # Début octobre, conservateur (27 octobre souvent le changement)
+    else:
+        return False
+
+
 class FacadeProcessor:
     """Processes weather data adjustments based on facade solar irradiance."""
 
@@ -83,8 +112,8 @@ class FacadeProcessor:
             adjusted_point = deepcopy(weather_point)
 
             # Find corresponding solar irradiance value
-            solar_irradiance = self._get_solar_irradiance_for_datetime(
-                solar_lookup, weather_point
+            solar_irradiance, matched_solar_time = (
+                self._get_solar_irradiance_for_datetime(solar_lookup, weather_point)
             )
 
             # Apply temperature adjustment if threshold is exceeded
@@ -164,44 +193,79 @@ class FacadeProcessor:
         self,
         solar_lookup: Dict[datetime, float],
         weather_point: WeatherDataPoint,
-    ) -> Optional[float]:
+    ) -> Tuple[Optional[float], Optional[str]]:
         """
         Get solar irradiance value for specific weather data point.
 
-        Uses naive datetime comparison to handle MEZ/MESZ differences correctly.
-        Matches based on month/day/hour regardless of year.
+        Handles MEZ/MESZ differences correctly:
+        - Weather data: constant MEZ (UTC+1h)
+        - Solar data: MEZ (UTC+1h) in winter, MESZ (UTC+2h) in summer
+
+        In winter (MEZ): both at same UTC offset, but weather shows 1h ahead
+        In summer (MESZ): both should have same local time
 
         Args:
             solar_lookup: Solar irradiance lookup table
             weather_point: Weather data point to find solar irradiance for
 
         Returns:
-            Solar irradiance value in W/m² or None if not found
+            Tuple of (Solar irradiance value in W/m², matched solar datetime string) or (None, None) if not found
         """
         # Try direct lookup first (for cases where years match)
         weather_dt = weather_point.to_datetime_for_comparison()
         irradiance = solar_lookup.get(weather_dt)
 
         if irradiance is not None:
-            return irradiance
+            matched_solar_time = (
+                f"{weather_dt.month:02d}-{weather_dt.day:02d} {weather_dt.hour:02d}:00"
+            )
+            return irradiance, matched_solar_time
 
-        # If no exact match, try matching by month/day/hour regardless of year
+        # Determine if this date is in DST (MESZ) or standard time (MEZ)
         weather_month = weather_point.month
         weather_day = weather_point.day
-        weather_hour = weather_point.hour - 1  # Convert to 0-23 format
+        is_summer = is_dst_date(weather_month, weather_day)
 
+        # Calculate the correct solar hour based on timezone rules:
+        # - Weather data: constant MEZ (UTC+1)
+        # - Solar data: MEZ (UTC+1) in winter, MESZ (UTC+2) in summer
+
+        if is_summer:
+            # Summer: Solar data in MESZ (UTC+2), Weather in MEZ (UTC+1)
+            # Need to add 1h to weather time to match solar time
+            target_solar_hour = (
+                weather_point.hour
+            )  # Weather 1-24, add 1h, then convert to 0-23
+        else:
+            # Winter: Both in MEZ (UTC+1)
+            # Weather time 1-24 should match solar time 0-23 directly (minus 1 for 0-based)
+            target_solar_hour = (
+                weather_point.hour - 1
+            )  # Convert weather 1-24 to solar 0-23
+
+        # Ensure hour is within valid range
+        if target_solar_hour < 0:
+            target_solar_hour = 0
+        elif target_solar_hour > 23:
+            target_solar_hour = 23
+
+        # Search for matching solar data
         for solar_dt, solar_irradiance in solar_lookup.items():
             if (
                 solar_dt.month == weather_month
                 and solar_dt.day == weather_day
-                and solar_dt.hour == weather_hour
+                and solar_dt.hour == target_solar_hour
             ):
+                season_info = "MESZ (été)" if is_summer else "MEZ (hiver)"
                 self.logger.debug(
-                    f"Found solar data by date/time match: "
-                    f"Weather: {weather_month:02d}-{weather_day:02d} {weather_hour:02d}:00, "
+                    f"Found solar data by date/time match ({season_info}): "
+                    f"Weather: {weather_month:02d}-{weather_day:02d} {weather_point.hour:02d}:00, "
                     f"Solar: {solar_dt}"
                 )
-                return solar_irradiance
+                matched_solar_time = (
+                    f"{solar_dt.month:02d}-{solar_dt.day:02d} {solar_dt.hour:02d}:00"
+                )
+                return solar_irradiance, matched_solar_time
 
         # If still no match, try a tolerance-based search
         for solar_dt, solar_irradiance in solar_lookup.items():
@@ -213,9 +277,12 @@ class FacadeProcessor:
                     f"Found solar data with {time_diff/60:.1f} min difference: "
                     f"Weather: {weather_dt_adjusted}, Solar: {solar_dt}"
                 )
-                return solar_irradiance
+                matched_solar_time = (
+                    f"{solar_dt.month:02d}-{solar_dt.day:02d} {solar_dt.hour:02d}:00"
+                )
+                return solar_irradiance, matched_solar_time
 
-        return None
+        return None, None
 
     def _create_adjusted_metadata(
         self,
@@ -424,6 +491,8 @@ class PreviewAdjustment:
         adjusted_temp: float,
         solar_irradiance: float,
         threshold: float,
+        weather_datetime: Optional[str] = None,
+        solar_datetime: Optional[str] = None,
     ):
         self.datetime_str = datetime_str
         self.facade_id = facade_id
@@ -432,6 +501,9 @@ class PreviewAdjustment:
         self.adjusted_temp = adjusted_temp
         self.solar_irradiance = solar_irradiance
         self.threshold = threshold
+        # Nouvelles propriétés pour la synchronisation
+        self.weather_datetime = weather_datetime or datetime_str
+        self.solar_datetime = solar_datetime or datetime_str
 
 
 class PreviewResult(NamedTuple):
@@ -483,6 +555,7 @@ def preview_weather_solar_processing(
     total_adjustments = 0
     adjustments_by_facade = {}
     sample_adjustments = []
+    facade_samples = {}  # Pour stratifier les échantillons par façade
 
     facade_processor = FacadeProcessor(threshold, delta_t)
 
@@ -506,11 +579,17 @@ def preview_weather_solar_processing(
         # Compter les ajustements pour cette façade
         facade_adjustments = 0
         facade_key = f"{facade_id}_{building_body}"
+        facade_samples[facade_key] = {
+            "summer": [],  # Mars-Septembre (heure d'été potentielle)
+            "winter": [],  # Octobre-Février (heure d'hiver)
+        }
 
         for weather_point in weather_data:
             # Trouver la valeur d'irradiance solaire correspondante
-            solar_irradiance = facade_processor._get_solar_irradiance_for_datetime(
-                solar_lookup, weather_point
+            solar_irradiance, matched_solar_time = (
+                facade_processor._get_solar_irradiance_for_datetime(
+                    solar_lookup, weather_point
+                )
             )
 
             # Vérifier si un ajustement sera appliqué
@@ -518,21 +597,38 @@ def preview_weather_solar_processing(
                 facade_adjustments += 1
                 total_adjustments += 1
 
-                # Ajouter à l'échantillon d'ajustements si pas encore plein
-                if len(sample_adjustments) < max_sample_adjustments:
+                # Déterminer la saison pour stratifier les échantillons
+                season = "summer" if 3 <= weather_point.month <= 9 else "winter"
+
+                # Ajouter à l'échantillon stratifié si pas encore plein pour cette façade/saison
+                if (
+                    len(facade_samples[facade_key][season]) < 3
+                ):  # Max 3 par saison par façade
+                    weather_time_str = f"{weather_point.month:02d}-{weather_point.day:02d} {weather_point.hour:02d}:00"
                     adjustment = PreviewAdjustment(
-                        datetime_str=f"{weather_point.month:02d}-{weather_point.day:02d} {weather_point.hour:02d}:00",
+                        datetime_str=weather_time_str,
                         facade_id=facade_id,
                         building_body=building_body,
                         original_temp=weather_point.temperature,
                         adjusted_temp=weather_point.temperature + delta_t,
                         solar_irradiance=solar_irradiance,
                         threshold=threshold,
+                        weather_datetime=weather_time_str,
+                        solar_datetime=matched_solar_time,
                     )
-                    sample_adjustments.append(adjustment)
+                    facade_samples[facade_key][season].append(adjustment)
 
         adjustments_by_facade[facade_key] = facade_adjustments
         logger.info(f"Facade {facade_key}: {facade_adjustments} adjustments")
+
+    # Construire la liste finale d'échantillons stratifiée
+    for facade_key, seasons in facade_samples.items():
+        for season, adjustments in seasons.items():
+            sample_adjustments.extend(adjustments)
+            if len(sample_adjustments) >= max_sample_adjustments:
+                break
+        if len(sample_adjustments) >= max_sample_adjustments:
+            break
 
     # Paramètres de traitement
     parameters = {

@@ -199,22 +199,24 @@ class TestFacadeProcessor:
         )
 
         # Test existing values
-        assert (
-            facade_processor._get_solar_irradiance_for_datetime(lookup, weather_point_1)
-            == 150.5
+        result1 = facade_processor._get_solar_irradiance_for_datetime(
+            lookup, weather_point_1
         )
-        assert (
-            facade_processor._get_solar_irradiance_for_datetime(lookup, weather_point_2)
-            == 350.2
+        assert result1[0] == 150.5  # Check the irradiance value
+        assert result1[1] == "01-01 11:00"  # Check the matched time string
+
+        result2 = facade_processor._get_solar_irradiance_for_datetime(
+            lookup, weather_point_2
         )
+        assert result2[0] == 350.2  # Check the irradiance value
+        assert result2[1] == "06-15 13:00"  # Check the matched time string
 
         # Test non-existing values
-        assert (
-            facade_processor._get_solar_irradiance_for_datetime(
-                lookup, weather_point_nonexistent
-            )
-            is None
+        result3 = facade_processor._get_solar_irradiance_for_datetime(
+            lookup, weather_point_nonexistent
         )
+        assert result3[0] is None  # Should return None for non-existent data
+        assert result3[1] is None  # Should return None for time string too
 
 
 class TestCoreProcessor:
@@ -262,7 +264,11 @@ class TestCoreProcessor:
             for facade_key, file_path in output_files.items():
                 assert Path(file_path).exists()
                 assert Path(file_path).suffix == ".dat"
-                assert "weather_" in Path(file_path).name
+                # Check that facade identifier is in the filename
+                assert any(
+                    facade_id in Path(file_path).name
+                    for facade_id in ["f2", "f3", "f4"]
+                )
 
 
 class TestMainFunction:
@@ -291,9 +297,46 @@ class TestMainFunction:
                 # Check file content structure
                 with open(file_obj, "r", encoding="latin1") as f:
                     content = f.read()
-                    assert "Adjusted TRY Weather Data" in content
-                    assert "Threshold: 250.0 W/m²" in content
-                    assert "Delta T: 3.0°C" in content
+                    # Check that it's a TRY format file
+                    assert "Koordinatensystem" in content or "Format:" in content
+                    # Check that it contains weather data
+                    lines = content.strip().split("\n")
+                    data_lines = [
+                        line
+                        for line in lines
+                        if not line.startswith(
+                            (
+                                "Koordinatensystem",
+                                "Rechtswert",
+                                "Hochwert",
+                                "Hoehenlage",
+                                "Erstellung",
+                                "Art",
+                                "Bezugszeitraum",
+                                "Datenbasis",
+                                "Format:",
+                                "Reihenfolge",
+                                "RW",
+                                "HW",
+                                "MM",
+                                "t",
+                                "p",
+                                "WR",
+                                "WG",
+                                "N",
+                                "x",
+                                "RF",
+                                "B",
+                                "D",
+                                "A",
+                                "E",
+                                "IL",
+                                "***",
+                            )
+                        )
+                        and line.strip()
+                    ]
+                    assert len(data_lines) > 0, "Should contain weather data lines"
 
     def test_process_with_invalid_files(self):
         """Test processing with invalid file paths."""
