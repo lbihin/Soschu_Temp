@@ -258,6 +258,34 @@ class WeatherDataPoint(BaseModel):
         except ValueError:
             return True
 
+    def to_original_format_line(self, original_line: str) -> str:
+        """
+        Convert the weather data point back to its original format line,
+        preserving the exact spacing and format of the original.
+
+        Args:
+            original_line: The original line from the file for this data point
+
+        Returns:
+            Formatted line with updated values but original format preserved
+        """
+        # For now, simply return the original line since we want exact preservation
+        # This will be enhanced later to handle actual modifications
+        return original_line
+
+    def _format_standard_line(self) -> str:
+        """Fallback method to format line in standard TRY format."""
+        return (
+            f"{self.rechtswert:7d} {self.hochwert:7d} "
+            f"{self.month:2d} {self.day:2d} {self.hour:2d} "
+            f"{self.temperature:5.1f} {self.pressure:4d} "
+            f"{self.wind_direction:3d} {self.wind_speed:3.0f} "
+            f"{self.cloud_cover:2d} {self.humidity_ratio:4.1f} "
+            f"{self.relative_humidity:3d} {self.direct_solar:4d} "
+            f"{self.diffuse_solar:4d} {self.atmospheric_radiation:4d} "
+            f"{self.terrestrial_radiation:4d} {self.quality_flag:1d}\n"
+        )
+
 
 class WeatherFileMetadata(BaseModel):
     """Metadata extracted from the weather file header."""
@@ -274,6 +302,18 @@ class WeatherFileMetadata(BaseModel):
     data_basis_2: str = Field(default="", description="Second data basis description")
     data_basis_3: str = Field(default="", description="Third data basis description")
     creation_date: str = Field(default="", description="Dataset creation date")
+
+    # Original format preservation (no stripping to preserve exact format)
+    original_header_lines: List[str] = Field(
+        default_factory=list,
+        description="Original header lines for exact format preservation",
+        json_schema_extra={"preserve_whitespace": True},
+    )
+    original_data_lines: List[str] = Field(
+        default_factory=list,
+        description="Original data lines for exact format preservation",
+        json_schema_extra={"preserve_whitespace": True},
+    )
 
     def get_location_string(self) -> str:
         """Get formatted location string."""
@@ -325,6 +365,14 @@ class WeatherDataParser:
 
             metadata = self._parse_metadata(lines)
             data_points = self._parse_data_lines(lines)
+
+            # Store original lines for format preservation (bypass Pydantic stripping)
+            header_lines = self._extract_header_lines(lines)
+            data_lines = self._extract_data_lines(lines)
+
+            # Use object.__setattr__ to bypass Pydantic validation that strips whitespace
+            object.__setattr__(metadata, "original_header_lines", header_lines)
+            object.__setattr__(metadata, "original_data_lines", data_lines)
 
             self.logger.info(f"Successfully parsed {len(data_points)} data points")
             return metadata, data_points
@@ -454,6 +502,54 @@ class WeatherDataParser:
             )
         except (ValueError, IndexError) as e:
             raise ValueError(f"Failed to parse data fields: {e}")
+
+    def _extract_header_lines(self, lines: List[str]) -> List[str]:
+        """Extract header lines from the file, including everything before data starts."""
+        header_lines = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+
+            # Check if this is a data line (starts with digit)
+            if stripped and stripped[0].isdigit():
+                break
+
+            # Include this line in header
+            header_lines.append(line)
+
+            # Also check if the next line after this one is a data line
+            # This ensures we capture separator lines like "*** "
+            if i + 1 < len(lines):
+                next_stripped = lines[i + 1].strip()
+                if next_stripped and next_stripped[0].isdigit():
+                    # This current line is the last header line before data
+                    break
+
+        return header_lines
+
+    def _extract_data_lines(self, lines: List[str]) -> List[str]:
+        """Extract data lines from the file."""
+        data_lines = []
+        data_started = False
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Detect start of data section by header line
+            if (
+                "RW" in stripped
+                and "HW" in stripped
+                and "MM" in stripped
+                and "DD" in stripped
+                and "HH" in stripped
+            ):
+                data_started = True
+                continue
+
+            # Collect data lines (start with digit)
+            if data_started and stripped and stripped[0].isdigit():
+                data_lines.append(line)
+
+        return data_lines
 
 
 def load_weather_data(

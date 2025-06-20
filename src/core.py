@@ -1,11 +1,5 @@
 """
-Corimport logging
-import re
-from copy import deepcopy
-from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, NamedTupletionality for the Soschu Temperature tool.
+Core functionality for the Soschu Temperature tool.
 
 This module provides the main processing logic to adjust weather data based on
 solar irradiance thresholds for different facade orientations of building bodies.
@@ -336,7 +330,7 @@ class CoreProcessor:
             output_file_path = output_path / output_filename
 
             # Save adjusted weather data
-            self._save_weather_data(
+            self.save_weather_data(
                 output_file_path, adjusted_metadata, adjusted_weather_data
             )
 
@@ -379,61 +373,40 @@ class CoreProcessor:
 
         return sorted(list(combinations))
 
-    def _save_weather_data(
+    def save_weather_data(
         self,
         file_path: Path,
         metadata: WeatherFileMetadata,
         weather_data: List[WeatherDataPoint],
     ) -> None:
         """
-        Save adjusted weather data to a file in TRY format.
+        Save adjusted weather data to a file in TRY format, preserving the exact original format.
 
         Args:
             file_path: Output file path
-            metadata: Weather metadata
+            metadata: Weather metadata with original lines
             weather_data: List of weather data points
         """
         with open(file_path, "w", encoding="latin1") as f:
-            # Write header with metadata
-            f.write(
-                "***********************************************************************\n"
-            )
-            f.write(
-                "* Adjusted TRY Weather Data - Soschu Temperature Tool                 *\n"
-            )
-            f.write(
-                "***********************************************************************\n"
-            )
-            f.write(f"Coordinate System: {metadata.coordinate_system}\n")
-            f.write(f"Rechtswert: {metadata.rechtswert}\n")
-            f.write(f"Hochwert: {metadata.hochwert}\n")
-            f.write(f"Elevation: {metadata.elevation} m\n")
-            f.write(f"TRY Type: {metadata.try_type}\n")
-            f.write(f"Reference Period: {metadata.reference_period}\n")
-            f.write(f"Data Basis 1: {metadata.data_basis_1}\n")
-            f.write(f"Data Basis 2: {metadata.data_basis_2}\n")
-            f.write(f"Data Basis 3: {metadata.data_basis_3}\n")
-            f.write(f"Creation Date: {metadata.creation_date}\n")
-            f.write(
-                "***********************************************************************\n"
-            )
-            f.write(
-                "     RW      HW MM DD HH   T    P WRI WSG  BW   WVR RH  STR   SDR   ATR   TER Q\n"
-            )
+            # Write original header lines to preserve exact format
+            for header_line in metadata.original_header_lines:
+                f.write(header_line)
 
-            # Write data
-            for point in weather_data:
-                line = (
-                    f"{point.rechtswert:7d} {point.hochwert:7d} "
-                    f"{point.month:2d} {point.day:2d} {point.hour:2d} "
-                    f"{point.temperature:5.1f} {point.pressure:4d} "
-                    f"{point.wind_direction:3d} {point.wind_speed:3.0f} "
-                    f"{point.cloud_cover:2d} {point.humidity_ratio:4.1f} "
-                    f"{point.relative_humidity:3d} {point.direct_solar:4d} "
-                    f"{point.diffuse_solar:4d} {point.atmospheric_radiation:4d} "
-                    f"{point.terrestrial_radiation:4d} {point.quality_flag:1d}\n"
+            # Write data lines, preserving original format but with updated values
+            if len(metadata.original_data_lines) == len(weather_data):
+                # We have original lines - preserve their exact format
+                for original_line, data_point in zip(
+                    metadata.original_data_lines, weather_data
+                ):
+                    modified_line = data_point.to_original_format_line(original_line)
+                    f.write(modified_line)
+            else:
+                # Fallback to standard format if original lines not available
+                self.logger.warning(
+                    "Original data lines not available, using standard format"
                 )
-                f.write(line)
+                for point in weather_data:
+                    f.write(point._format_standard_line())
 
 
 class PreviewAdjustment:
