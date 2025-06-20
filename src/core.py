@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from config import Config
+from output_generator import OutputGenerator, create_try_generator
 from solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
 from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
 
@@ -72,7 +73,7 @@ class FacadeProcessor:
         solar_data: List[SolarDataPoint],
         facade_id: str,
         building_body: str,
-    # ) -> Tuple[WeatherFileMetadata, List[WeatherDataPoint]]:
+        # ) -> Tuple[WeatherFileMetadata, List[WeatherDataPoint]]:
     ) -> List[WeatherDataPoint]:
         """
         Process weather data for a specific facade of a building body.
@@ -217,8 +218,16 @@ class FacadeProcessor:
 class CoreProcessor:
     """Main processor for the Soschu Temperature tool."""
 
-    def __init__(self):
+    def __init__(self, output_generator: Optional[OutputGenerator] = None):
+        """
+        Initialize the core processor.
+
+        Args:
+            output_generator: Output generator for file creation.
+                            If None, defaults to TRY format generator.
+        """
         self.logger = logging.getLogger(__name__)
+        self.output_generator = output_generator or create_try_generator()
 
     def process_all_facades(
         self,
@@ -245,7 +254,7 @@ class CoreProcessor:
 
         # IMPORTANT: Extract year from first solar data point to set config. Make sure this operation take place before loading the weather data
         # This is important to ensure the year is set correctly for the weather data processing. This is key for direct matching of solar and weather data.
-        
+
         # Load solar data
         solar_metadata, solar_data = load_solar_irridance_data(solar_file_path)
         self.logger.info(f"Loaded {len(solar_data)} solar data points")
@@ -279,15 +288,13 @@ class CoreProcessor:
             self.logger.info(f"Processing {facade_id} of {building_body}")
 
             # Process the facade
-            adjusted_weather_data = (
-                facade_processor.process_facade_data(
-                    weather_metadata,
-                    weather_data,
-                    solar_metadata,
-                    solar_data,
-                    facade_id,
-                    building_body,
-                )
+            adjusted_weather_data = facade_processor.process_facade_data(
+                weather_metadata,
+                weather_data,
+                solar_metadata,
+                solar_data,
+                facade_id,
+                building_body,
             )
 
             # Generate output filename based on original weather file name
@@ -296,8 +303,8 @@ class CoreProcessor:
             output_filename = f"{weather_file_base}_{safe_facade}_{safe_building}.dat"
             output_file_path = output_path / output_filename
 
-            # Save adjusted weather data
-            self.save_weather_data(
+            # Save adjusted weather data using OutputGenerator
+            self.output_generator.generate_file(
                 output_file_path, weather_metadata, adjusted_weather_data
             )
 
@@ -339,41 +346,6 @@ class CoreProcessor:
             combinations.add((facade_id, building_body))
 
         return sorted(list(combinations))
-
-    def save_weather_data(
-        self,
-        file_path: Path,
-        metadata: WeatherFileMetadata,
-        weather_data: List[WeatherDataPoint],
-    ) -> None:
-        """
-        Save adjusted weather data to a file in TRY format, preserving the exact original format.
-
-        Args:
-            file_path: Output file path
-            metadata: Weather metadata with original lines
-            weather_data: List of weather data points
-        """
-        with open(file_path, "w", encoding="latin1") as f:
-            # Write original header lines to preserve exact format
-            for header_line in metadata.original_header_lines:
-                f.write(header_line)
-
-            # Write data lines, preserving original format but with updated values
-            if len(metadata.original_data_lines) == len(weather_data):
-                # We have original lines - preserve their exact format
-                for original_line, data_point in zip(
-                    metadata.original_data_lines, weather_data
-                ):
-                    modified_line = data_point.to_original_format_line(original_line)
-                    f.write(modified_line)
-            else:
-                # Fallback to standard format if original lines not available
-                self.logger.warning(
-                    "Original data lines not available, using standard format"
-                )
-                for point in weather_data:
-                    f.write(point._format_standard_line())
 
 
 class PreviewAdjustment:
@@ -555,6 +527,7 @@ def process_weather_with_solar_data(
     threshold: float,
     delta_t: float,
     output_dir: str = "output",
+    output_generator: Optional[OutputGenerator] = None,
 ) -> Dict[str, str]:
     """
     Main function to process weather data with solar irradiance adjustments.
@@ -565,11 +538,12 @@ def process_weather_with_solar_data(
         threshold: Solar irradiance threshold in W/m²
         delta_t: Temperature increase in °C
         output_dir: Directory to save output files
+        output_generator: Optional custom output generator. If None, defaults to TRY format.
 
     Returns:
         Dictionary mapping facade identifiers to output file paths
     """
-    processor = CoreProcessor()
+    processor = CoreProcessor(output_generator)
     return processor.process_all_facades(
         weather_file_path, solar_file_path, threshold, delta_t, output_dir
     )
