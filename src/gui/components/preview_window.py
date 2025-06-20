@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, List, Optional
 
-from core import PreviewResult
+from preview import PreviewService, PreviewSummaryData
 
 # Configuration du logger pour ce module
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ class PreviewWindow:
     def __init__(
         self,
         parent,
-        preview_result: PreviewResult,
+        preview_result: PreviewService,
         generate_callback: Optional[Callable] = None,
     ):
         """
@@ -27,9 +27,14 @@ class PreviewWindow:
             generate_callback: Fonction à appeler pour générer les fichiers
         """
         self.parent = parent
+        self.summary = self._generate_preview_summary(preview_result)
         self.preview_result = preview_result
         self.generate_callback = generate_callback
         self.window = None
+
+    def _generate_preview_summary(self, preview_service: PreviewService) -> PreviewSummaryData:
+        """Génèrate the data for the summary tab."""
+        return preview_service.get_summary()
 
     def show(self):
         """Affiche la fenêtre de prévisualisation."""
@@ -49,14 +54,14 @@ class PreviewWindow:
         # Onglet Résumé
         self._create_summary_tab(notebook)
 
-        # Onglet Détails par façade
-        self._create_facade_details_tab(notebook)
+        # # Onglet Détails par façade
+        # self._create_facade_details_tab(notebook)
 
-        # Onglet Échantillon d'ajustements
-        self._create_sample_adjustments_tab(notebook)
+        # # Onglet Échantillon d'ajustements
+        # self._create_sample_adjustments_tab(notebook)
 
-        # Onglet Paramètres
-        self._create_parameters_tab(notebook)
+        # # Onglet Paramètres
+        # self._create_parameters_tab(notebook)
 
         # Boutons de contrôle
         self._create_control_buttons()
@@ -95,14 +100,14 @@ class PreviewWindow:
         info_title.pack(fill=tk.X, pady=5)
 
         info_text = f"""
-Nombre de Façades à traiter: {len(self.preview_result.facade_combinations)}
-Total d'ajustements de température: {self.preview_result.total_adjustments:,}
-Nombre de points fichier météo: {self.preview_result.parameters['weather_data_points']:,}
-Nombre  de points fichier irradiance solaire: {self.preview_result.parameters['solar_data_points']:,}
+Nombre de Façades à traiter: {self.summary.count_facades}
+Total d'ajustements de température: {self.summary.count_adjustments}
+Nombre de points fichier météo: {self.summary.count_weather_data_points}
+Nombre  de points fichier irradiance solaire: {self.summary.count_weather_data_points}
 
 Paramètres de traitement:
-• Seuil d'irradiance: {self.preview_result.parameters['threshold']} W/m²
-• Augmentation de température: {self.preview_result.parameters['delta_t']} K
+• Seuil d'irradiance: {self.summary.threshold} W/m²
+• Augmentation de température: {self.summary.delta_t} K
         """.strip()
 
         info_label = tk.Label(info_frame, text=info_text, justify=tk.LEFT, anchor="w")
@@ -123,10 +128,10 @@ Paramètres de traitement:
         # Tableau des façades
         facade_text = "Façade\t\t\tAjustements\n" + "-" * 50 + "\n"
         for (
-            facade_key,
+            facade_name,
             adjustments,
-        ) in self.preview_result.adjustments_by_facade.items():
-            facade_text += f"{facade_key.ljust(25)}\t{adjustments:,}\n"
+        ) in self.summary.table.items():
+            facade_text += f"{facade_name.ljust(25)}\t{adjustments}\n"
 
         facade_label = tk.Label(
             facade_frame,
@@ -477,7 +482,7 @@ Façades à traiter:
 
 
 def show_preview_window(
-    parent, preview_result: PreviewResult, generate_callback: Optional[Callable] = None
+    parent, preview_result: PreviewService, generate_callback: Optional[Callable] = None
 ):
     """
     Fonction utilitaire pour afficher la fenêtre de prévisualisation.
