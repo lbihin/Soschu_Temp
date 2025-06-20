@@ -67,14 +67,12 @@ class FacadeProcessor:
 
     def process_facade_data(
         self,
-        weather_metadata: WeatherFileMetadata,
         weather_data: List[WeatherDataPoint],
         solar_metadata: SolarFileMetadata,
         solar_data: List[SolarDataPoint],
         facade_id: str,
         building_body: str,
-        # ) -> Tuple[WeatherFileMetadata, List[WeatherDataPoint]]:
-    ) -> List[WeatherDataPoint]:
+    ):
         """
         Process weather data for a specific facade of a building body.
 
@@ -87,7 +85,7 @@ class FacadeProcessor:
             building_body: Building body identifier (e.g., "Building body", "Building body 2")
 
         Returns:
-            Tuple of adjusted weather metadata and weather data points
+            None
         """
         self.logger.info(f"Processing facade {facade_id} of {building_body}")
 
@@ -107,13 +105,9 @@ class FacadeProcessor:
         solar_lookup = self._create_solar_lookup(solar_data, facade_column)
 
         # Process each weather data point
-        adjusted_weather_data = []
         adjustments_made = 0
 
         for weather_point in weather_data:
-            # Create a copy of the weather point for modification
-            adjusted_point = deepcopy(weather_point)
-
             # Find corresponding solar irradiance value
             solar_irradiance = self._get_solar_irradiance_for_datetime(
                 solar_lookup, weather_point
@@ -121,26 +115,18 @@ class FacadeProcessor:
 
             # Apply temperature adjustment if threshold is exceeded
             if solar_irradiance is not None and solar_irradiance > self.threshold:
-                adjusted_point.temperature += self.delta_t
+                # Update the adjusted temperature
+                weather_point.adjusted_temperature += self.delta_t
                 adjustments_made += 1
                 self.logger.debug(
                     f"Adjusted temperature for {weather_point.month:02d}-{weather_point.day:02d} "
                     f"{weather_point.hour:02d}:00 - Solar: {solar_irradiance:.1f} W/m² > {self.threshold} W/m², "
-                    f"Temp: {weather_point.temperature:.1f}°C → {adjusted_point.temperature:.1f}°C"
+                    f"Temp: {weather_point.temperature:.1f}°C → {weather_point.adjusted_temperature:.1f}°C"
                 )
-
-            adjusted_weather_data.append(adjusted_point)
 
         self.logger.info(
             f"Made {adjustments_made} temperature adjustments out of {len(weather_data)} data points"
         )
-
-        # # Create adjusted metadata
-        # adjusted_metadata = self._create_adjusted_metadata(
-        #     weather_metadata, facade_id, building_body, adjustments_made
-        # )
-
-        return adjusted_weather_data
 
     def _find_facade_column(
         self, solar_metadata: SolarFileMetadata, facade_id: str, building_body: str
@@ -288,8 +274,7 @@ class CoreProcessor:
             self.logger.info(f"Processing {facade_id} of {building_body}")
 
             # Process the facade
-            adjusted_weather_data = facade_processor.process_facade_data(
-                weather_metadata,
+            facade_processor.process_facade_data(
                 weather_data,
                 solar_metadata,
                 solar_data,
@@ -305,7 +290,7 @@ class CoreProcessor:
 
             # Save adjusted weather data using OutputGenerator
             self.output_generator.generate_file(
-                output_file_path, weather_metadata, adjusted_weather_data
+                output_file_path, weather_metadata, weather_data
             )
 
             facade_key = f"{facade_id}_{building_body}"
@@ -455,11 +440,12 @@ def preview_weather_solar_processing(
 
         for weather_point in weather_data:
             # Trouver la valeur d'irradiance solaire correspondante
-            solar_irradiance, matched_solar_time = (
-                facade_processor._get_solar_irradiance_for_datetime(
-                    solar_lookup, weather_point
-                )
+            solar_irradiance = facade_processor._get_solar_irradiance_for_datetime(
+                solar_lookup, weather_point
             )
+
+            # Pour la prévisualisation, on utilise le timestamp du weather_point comme référence
+            matched_solar_time = f"{weather_point.month:02d}-{weather_point.day:02d} {weather_point.hour:02d}:00"
 
             # Vérifier si un ajustement sera appliqué
             if solar_irradiance is not None and solar_irradiance > threshold:
@@ -552,7 +538,7 @@ def process_weather_with_solar_data(
 # Example usage
 if __name__ == "__main__":
     # Setup logging for testing
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     # Test parameters
     weather_file = "tests/data/TRY2045_488284093163_Jahr.dat"

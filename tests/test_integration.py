@@ -123,7 +123,6 @@ class TestCoreIntegration:
         facade_id, building_body = facade_combinations[0]
 
         adjusted_metadata, adjusted_weather_data = processor.process_facade_data(
-            weather_metadata,
             weather_data,
             solar_metadata,
             solar_data,

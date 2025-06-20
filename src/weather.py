@@ -22,8 +22,8 @@ class WeatherDataPoint(BaseModel):
 
     model_config = ConfigDict(
         str_strip_whitespace=True,
-        validate_assignment=True,
         arbitrary_types_allowed=True,
+        frozen=False,  # Allow field mutations after creation
     )
 
     # Location and time
@@ -78,6 +78,19 @@ class WeatherDataPoint(BaseModel):
         description="Computed naive datetime with hours 1-24 format",
     )
 
+    # Computed adjusted temperature for solar calculations
+    adjusted_temperature: float = Field(
+        default_factory=lambda: 99999999.0,  # Default will be overridden
+        description="Adjusted Air temperature at 2m height [°C]",
+    )
+
+    @model_validator(mode="after")
+    def set_adjusted_temperature(self):
+        """Set adjusted temperature after model creation."""
+        # Adjust original tempearature
+        object.__setattr__(self, "adjusted_temperature", self.temperature)
+        return self
+
     @model_validator(mode="after")
     def set_timestamp(self):
         """Set timestamp after model creation using the month, day, and hour fields."""
@@ -91,30 +104,6 @@ class WeatherDataPoint(BaseModel):
         # Use object.__setattr__ to avoid triggering validation
         object.__setattr__(self, "timestamp", base_dt)
         return self
-
-    @field_validator("wind_direction")
-    @classmethod
-    def validate_wind_direction(cls, v):
-        """Validate wind direction is in valid range or calm indicator."""
-        if not (0 <= v <= 360 or v == 999):
-            raise ValueError("Wind direction must be 0-360 degrees or 999 for calm")
-        return v
-
-    @field_validator("temperature")
-    @classmethod
-    def validate_temperature(cls, v):
-        """Validate temperature is in reasonable range."""
-        if not -60 <= v <= 60:
-            raise ValueError("Temperature must be between -60°C and 60°C")
-        return v
-
-    @field_validator("pressure")
-    @classmethod
-    def validate_pressure(cls, v):
-        """Validate pressure is in reasonable range."""
-        if not 800 <= v <= 1200:
-            raise ValueError("Pressure must be between 800 and 1200 hPa")
-        return v
 
     def to_datetime_for_gui(self) -> str:
         """
