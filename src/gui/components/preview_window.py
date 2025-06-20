@@ -141,21 +141,20 @@ Paramètres de traitement:
         tree.column("#2", width=150, anchor="center")
 
         # Ajouter les données
-        for facade_name, (adjustments, percentage) in self.summary.table.items():
 
-            # Configure tags for alternating row colors
-            tree.tag_configure('oddrow', background='#f0f0f0')
-            tree.tag_configure('evenrow', background='white')
-            
-            # Add the data with alternating background colors
-            for i, (facade_name, (adjustments, percentage)) in enumerate(self.summary.table.items()):
-                tree.insert(
-                    "",
-                    tk.END,
-                    text=facade_name,
-                    values=(f"{adjustments}", f"{percentage:.1f}%"),
-                    tags=('oddrow' if i % 2 else 'evenrow')
-                )
+        # Configure tags for alternating row colors
+        tree.tag_configure('oddrow', background='#f0f0f0')
+        tree.tag_configure('evenrow', background='white')
+        
+        # Add the data with alternating background colors
+        for i, (facade_name, (adjustments, percentage)) in enumerate(self.summary.table.items()):
+            tree.insert(
+                "",
+                tk.END,
+                text=facade_name,
+                values=(f"{adjustments}", f"{percentage:.1f}%"),
+                tags=('oddrow' if i % 2 else 'evenrow')
+            )
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
         h_scrollbar = ttk.Scrollbar(
