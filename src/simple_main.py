@@ -590,18 +590,22 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         )
         tree = ttk.Treeview(content_frame, columns=columns, show="headings", height=18)
 
-        # Configurer les colonnes
+        # Configurer les colonnes avec indication du format horaire
         tree.heading("Façade", text="Façade")
-        tree.heading("Date/Heure DAT", text="Date/Heure DAT")
-        tree.heading("Date/Heure HTML", text="Date/Heure HTML")
+        tree.heading("Date/Heure DAT", text="Date/Heure DAT (1-24h MEZ)")
+        tree.heading("Date/Heure HTML", text="Date/Heure HTML (0-23h MEZ/MESZ)")
         tree.heading("Temp. originale", text="Temp. originale")
         tree.heading("Temp. ajustée", text="Temp. ajustée")
         tree.heading("Irradiation", text="Irradiation")
 
         # Ajuster la largeur des colonnes
         tree.column("Façade", width=150)
-        tree.column("Date/Heure DAT", width=120)
-        tree.column("Date/Heure HTML", width=120)
+        tree.column(
+            "Date/Heure DAT", width=180
+        )  # Augmenté pour accommoder le texte plus long
+        tree.column(
+            "Date/Heure HTML", width=220
+        )  # Augmenté pour accommoder le texte plus long
         tree.column("Temp. originale", width=100)
         tree.column("Temp. ajustée", width=100)
         tree.column("Irradiation", width=100)
@@ -642,7 +646,67 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         )
         tree.configure(yscrollcommand=scrollbar_tree.set)
 
-        # Pack les widgets
+        # Option pour afficher les heures en UTC
+        self.show_utc = tk.BooleanVar(value=False)
+
+        # Fonction pour basculer entre les affichages d'heures
+        def toggle_utc_display():
+            # Effacer le contenu actuel
+            for item in tree.get_children():
+                tree.delete(item)
+
+            # Réafficher les données avec le format approprié
+            for sample in self.preview_data.sample_adjustments:
+                # Déterminer si c'est l'heure d'été (MESZ) ou l'heure d'hiver (MEZ)
+                is_dst = "MESZ" in sample.solar_datetime_str
+                tag = "summer" if is_dst else "winter"
+
+                if (
+                    self.show_utc.get()
+                    and sample.weather_datetime_utc
+                    and sample.solar_datetime_utc
+                ):
+                    # Format UTC pour les deux colonnes
+                    weather_time_str = sample.weather_datetime_utc.strftime(
+                        "%d.%m.%Y %H:%M UTC"
+                    )
+                    solar_time_str = sample.solar_datetime_utc.strftime(
+                        "%d.%m.%Y %H:%M UTC"
+                    )
+                else:
+                    # Format original pour les deux colonnes
+                    weather_time_str = sample.weather_datetime_str
+                    solar_time_str = sample.solar_datetime_str
+
+                tree.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        sample.facade_id,
+                        weather_time_str,
+                        solar_time_str,
+                        f"{sample.original_temp:.1f}°C",
+                        f"{sample.adjusted_temp:.1f}°C",
+                        f"{sample.solar_irradiance:.0f} W/m²",
+                    ),
+                    tags=(tag,),
+                )
+
+        # Créer un cadre pour l'option
+        option_frame = tk.Frame(content_frame)
+        option_frame.pack(fill=tk.X, pady=(0, 5))
+
+        # Ajouter la case à cocher
+        utc_check = tk.Checkbutton(
+            option_frame,
+            text="Afficher les heures en UTC (pour visualiser la correspondance exacte)",
+            variable=self.show_utc,
+            command=toggle_utc_display,
+            font=("Arial", 9),
+        )
+        utc_check.pack(anchor="w", padx=5)
+
+        # Pack les widgets principaux
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -675,6 +739,58 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             legend_frame, text="Heure d'hiver (MEZ)", font=("Arial", 9)
         )
         winter_label.pack(side=tk.LEFT, padx=5)
+
+        # Ajouter un cadre d'information pour expliquer les différences de format horaire
+        info_frame = tk.Frame(note_frame, relief=tk.RIDGE, bd=1)
+        info_frame.pack(fill=tk.X, pady=10, padx=5)
+
+        # Icône d'information
+        info_label = tk.Label(info_frame, text=" ℹ️ ", font=("Arial", 16), fg="blue")
+        info_label.pack(side=tk.LEFT, padx=5)
+
+        # Message d'information
+        message_frame = tk.Frame(info_frame)
+        message_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=5)
+
+        tk.Label(
+            message_frame,
+            text="Notes importantes sur les formats horaires:",
+            font=("Arial", 10, "bold"),
+            justify=tk.LEFT,
+            anchor="w",
+        ).pack(fill=tk.X)
+
+        tk.Label(
+            message_frame,
+            text="• Les fichiers DAT utilisent le format 1-24h en MEZ (heure fixe toute l'année)",
+            font=("Arial", 9),
+            justify=tk.LEFT,
+            anchor="w",
+        ).pack(fill=tk.X)
+
+        tk.Label(
+            message_frame,
+            text="• Les fichiers HTML utilisent le format 0-23h et alternent entre MEZ et MESZ",
+            font=("Arial", 9),
+            justify=tk.LEFT,
+            anchor="w",
+        ).pack(fill=tk.X)
+
+        tk.Label(
+            message_frame,
+            text="• Une même heure UTC peut donc être représentée différemment dans les deux formats",
+            font=("Arial", 9),
+            justify=tk.LEFT,
+            anchor="w",
+        ).pack(fill=tk.X)
+
+        tk.Label(
+            message_frame,
+            text="• Le système utilise l'UTC en interne pour garantir la correspondance exacte",
+            font=("Arial", 9),
+            justify=tk.LEFT,
+            anchor="w",
+        ).pack(fill=tk.X)
 
     def _create_wizard_generation_step(self, parent, wizard_window):
         """Crée l'étape 3 du wizard: Génération des fichiers."""
