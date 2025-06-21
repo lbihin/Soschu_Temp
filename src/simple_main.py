@@ -234,7 +234,7 @@ class SoschuApp:
         return True
 
     def preview_processing(self):
-        """Lance la prévisualisation dans un thread séparé."""
+        """Lance la prévisualisation sans thread."""
         if not self.validate_inputs():
             return
 
@@ -312,12 +312,9 @@ class SoschuApp:
             # Revenir au thread principal pour l'UI
             logger.info("Programmation du callback _preview_completed")
 
-            # Vérifier si la méthode est appelée correctement
-            def check_callback():
-                logger.info("Exécution du callback de vérification")
-                self._preview_completed()
-
-            self.root.after(100, check_callback)
+            # Appel direct du callback pour assurer une exécution correcte
+            logger.info("Appel direct du callback _preview_completed")
+            self.root.after(0, self._preview_completed)
 
         except Exception as e:
             logger.error(f"Erreur lors de la prévisualisation: {e}")
@@ -362,13 +359,17 @@ class SoschuApp:
         try:
             # Créer la fenêtre wizard
             wizard = tk.Toplevel(self.root)
-            wizard.title("Assistant de prévisualisation - Soschu Temperature Tool")
-            wizard.geometry("900x700")
+            wizard.title("Soschu Temperature Tool - Résumé")
+            wizard.geometry("1000x700")
+            wizard.minsize(900, 600)
             wizard.resizable(True, True)
             wizard.grab_set()  # Rendre la fenêtre modale
 
-            # Centrer la fenêtre sur l'écran
+            # Centrer la fenêtre sur l'écran par rapport à la fenêtre principale
             wizard.transient(self.root)
+
+            # Définir une icône et un style moderne
+            wizard.configure(bg="#f5f5f5")
 
             logger.info("Fenêtre wizard créée avec succès")
         except Exception as e:
@@ -383,39 +384,15 @@ class SoschuApp:
         main_frame = tk.Frame(wizard, padx=20, pady=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Header avec titre et étapes
-        header_frame = tk.Frame(main_frame, bg="#f0f0f0", relief=tk.RAISED, bd=1)
-        header_frame.pack(fill=tk.X, pady=(0, 20))
-
-        title_label = tk.Label(
-            header_frame,
-            text="Assistant de génération de fichiers ajustés",
-            font=("Arial", 16, "bold"),
-            bg="#f0f0f0",
-            pady=15,
-        )
-        title_label.pack()
-
-        # Indicateur d'étapes
-        steps_frame = tk.Frame(header_frame, bg="#f0f0f0")
-        steps_frame.pack(pady=(0, 15))
-
+        # Indicateur d'étapes simplifié (seulement pour la logique interne, pas visible)
         step_labels = ["1. Résumé", "2. Exemples", "3. Génération"]
         step_widgets = []
 
+        # On ne crée pas de widgets visibles pour les étapes,
+        # mais on garde la logique pour le fonctionnement interne
         for i, step_text in enumerate(step_labels):
-            label = tk.Label(
-                steps_frame,
-                text=step_text,
-                font=("Arial", 10, "bold" if i == 0 else "normal"),
-                bg="#4A90E2" if i == 0 else "#f0f0f0",
-                fg="white" if i == 0 else "black",
-                padx=20,
-                pady=5,
-                relief=tk.RAISED,
-                bd=1,
-            )
-            label.pack(side=tk.LEFT, padx=5)
+            # Créer des étiquettes invisibles pour la logique
+            label = tk.Label(main_frame)
             step_widgets.append(label)
 
         # Zone de contenu
@@ -458,14 +435,8 @@ class SoschuApp:
             # Afficher le frame actuel
             step_frames[step].pack(fill=tk.BOTH, expand=True)
 
-            # Mettre à jour les indicateurs d'étapes
-            for i, label in enumerate(step_widgets):
-                if i == step:
-                    label.config(bg="#4A90E2", fg="white", font=("Arial", 10, "bold"))
-                elif i < step:
-                    label.config(bg="#90EE90", fg="black", font=("Arial", 10, "normal"))
-                else:
-                    label.config(bg="#f0f0f0", fg="black", font=("Arial", 10, "normal"))
+            # Mettre à jour le titre de la fenêtre selon l'étape actuelle
+            wizard.title(f"Soschu Temperature Tool - {step_labels[step]}")
 
             # Mettre à jour les boutons
             prev_btn.config(state=tk.NORMAL if step > 0 else tk.DISABLED)
@@ -611,43 +582,42 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         # Créer le treeview pour afficher les échantillons
         columns = (
             "Façade",
-            "Date/Heure",
+            "Date/Heure DAT",
+            "Date/Heure HTML",
             "Temp. originale",
             "Temp. ajustée",
             "Irradiation",
-            "Différence",
         )
         tree = ttk.Treeview(content_frame, columns=columns, show="headings", height=18)
 
         # Configurer les colonnes
         tree.heading("Façade", text="Façade")
-        tree.heading("Date/Heure", text="Date/Heure")
+        tree.heading("Date/Heure DAT", text="Date/Heure DAT")
+        tree.heading("Date/Heure HTML", text="Date/Heure HTML")
         tree.heading("Temp. originale", text="Temp. originale")
         tree.heading("Temp. ajustée", text="Temp. ajustée")
         tree.heading("Irradiation", text="Irradiation")
-        tree.heading("Différence", text="Différence")
 
         # Ajuster la largeur des colonnes
-        tree.column("Façade", width=180)
-        tree.column("Date/Heure", width=120)
+        tree.column("Façade", width=150)
+        tree.column("Date/Heure DAT", width=120)
+        tree.column("Date/Heure HTML", width=120)
         tree.column("Temp. originale", width=100)
         tree.column("Temp. ajustée", width=100)
         tree.column("Irradiation", width=100)
-        tree.column("Différence", width=80)
 
         # Ajouter les échantillons
         for sample in self.preview_data.sample_adjustments:
-            diff = sample.adjusted_temp - sample.original_temp
             tree.insert(
                 "",
                 tk.END,
                 values=(
                     sample.facade_id,
-                    sample.datetime_str,
+                    sample.weather_datetime_str,
+                    sample.solar_datetime_str,
                     f"{sample.original_temp:.1f}°C",
                     f"{sample.adjusted_temp:.1f}°C",
                     f"{sample.solar_irradiance:.0f} W/m²",
-                    f"+{diff:.1f}°C",
                 ),
             )
 

@@ -44,7 +44,9 @@ class AdjustmentSample:
     """Échantillon d'ajustement pour la prévisualisation."""
 
     facade_id: str
-    datetime_str: str
+    datetime_str: str  # Format commun pour affichage
+    weather_datetime_str: str  # Format date/heure pour le fichier météo DAT
+    solar_datetime_str: str  # Format date/heure pour le fichier solaire HTML
     original_temp: float
     adjusted_temp: float
     solar_irradiance: float
@@ -89,13 +91,26 @@ class WeatherParser:
         data_start = 0
         header_lines = []
 
+        # Analyser le format du fichier pour déterminer la position exacte de la température
+        format_line = None
+        temp_position = (0, 0)  # (début, fin) de la position de température
+
         for i, line in enumerate(lines):
+            if line.strip().startswith("Format:"):
+                format_line = line.strip()
+
             if line.strip().startswith("***"):
                 header_lines.append(line)
                 data_start = i + 1
                 break
             else:
                 header_lines.append(line)
+
+        # Si le format est spécifié, on l'analyse pour déterminer la position de la température
+        if format_line:
+            logger.info(f"Format détecté: {format_line}")
+            # Le format indique que la température est au 6ème champ (f5.1)
+            # Les positions sont calculables à partir de ce format
 
         header = "".join(header_lines)
         weather_points = []
@@ -257,10 +272,22 @@ class SoschuProcessor:
 
                         # Collecter des échantillons pour la prévisualisation
                         if samples_collected[facade] < max_samples_per_facade:
+                            # Format de date pour les fichiers DAT (1-24 hours format)
+                            weather_datetime = f"{weather_point.day:02d}.{weather_point.month:02d} {weather_point.hour:02d}:00"
+
+                            # Format de date pour les fichiers HTML (0-23 hours format)
+                            # Conversion de l'heure weather (1-24) à l'heure solar (0-23)
+                            solar_hour = (
+                                weather_point.hour - 1 if weather_point.hour > 1 else 23
+                            )
+                            solar_datetime = f"{solar_point.day:02d}.{solar_point.month:02d} {solar_hour:02d}:00"
+
                             sample_adjustments.append(
                                 AdjustmentSample(
                                     facade_id=facade,
                                     datetime_str=f"{weather_point.day:02d}.{weather_point.month:02d} {weather_point.hour:02d}:00",
+                                    weather_datetime_str=weather_datetime,
+                                    solar_datetime_str=solar_datetime,
                                     original_temp=weather_point.temperature,
                                     adjusted_temp=weather_point.temperature + delta_t,
                                     solar_irradiance=irradiance,
@@ -321,13 +348,79 @@ class SoschuProcessor:
                                 weather_point.temperature + preview_data.delta_t
                             )
 
-                    # Remplacer la température dans la ligne originale
-                    parts = weather_point.raw_line.split()
-                    if len(parts) >= 6:
-                        parts[5] = f"{adjusted_temp:.1f}"
-                        adjusted_line = " ".join(parts) + "\n"
-                    else:
-                        adjusted_line = weather_point.raw_line
+                    # Méthode ultra-précise pour remplacer uniquement la température
+                    # tout en préservant exactement le format original (espaces, tabulations)
+                    raw_line = weather_point.raw_line
+
+                    # Analysons manuellement pour localiser précisément la température
+                    # La température est le 6ème champ, après HH (heure)
+
+                    # Étape 1: Extraire et compter les caractères non-espaces jusqu'au 5ème champ
+                    parts = []
+                    current_part = ""
+                    in_part = False
+
+                    for char in raw_line:
+                        if not char.isspace():
+                            current_part += char
+                            in_part = True
+                        elif in_part:
+                            parts.append(current_part)
+                            current_part = ""
+                            in_part = False
+                            if (
+                                len(parts) == 5
+                            ):  # Nous avons atteint la fin du 5ème champ
+                                break
+
+                    # Étape 2: Trouver la position exacte où commence le champ de température
+                    position = 0
+                    field_count = 0
+                    in_field = False
+
+                    for i, char in enumerate(raw_line):
+                        if not char.isspace() and not in_field:
+                            in_field = True
+                        elif char.isspace() and in_field:
+                            field_count += 1
+                            in_field = False
+                            if field_count == 5:  # Fin du 5ème champ
+                                position = i + 1
+                                break
+
+                    # Étape 3: Chercher le début exact de la valeur de température
+                    while position < len(raw_line) and raw_line[position].isspace():
+                        position += 1
+
+                    # Étape 4: Trouver la fin du champ de température
+                    temp_start = position
+                    while position < len(raw_line) and not raw_line[position].isspace():
+                        position += 1
+                    temp_end = position
+
+                    # Étape 5: Remplacer la température en conservant le format
+                    original_temp_str = raw_line[temp_start:temp_end]
+                    new_temp_str = f"{adjusted_temp:.1f}"
+
+                    # Conserver la même largeur
+                    if len(new_temp_str) < len(original_temp_str):
+                        # Aligner à droite pour préserver le formatage
+                        new_temp_str = (
+                            " " * (len(original_temp_str) - len(new_temp_str))
+                            + new_temp_str
+                        )
+                    elif len(new_temp_str) > len(original_temp_str):
+                        # Cas rare, mais gérons-le
+                        logger.warning(
+                            f"La nouvelle température {new_temp_str} est plus longue que l'originale {original_temp_str}"
+                        )
+                        # Tronquer si nécessaire
+                        new_temp_str = new_temp_str[: len(original_temp_str)]
+
+                    # Reconstruire la ligne en préservant tout le formatage original
+                    adjusted_line = (
+                        raw_line[:temp_start] + new_temp_str + raw_line[temp_end:]
+                    )
 
                     f.write(adjusted_line)
 
