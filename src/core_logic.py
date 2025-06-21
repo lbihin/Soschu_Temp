@@ -1,0 +1,337 @@
+"""
+Logique métier simplifiée pour le Soschu Temperature Tool.
+
+Ce module contient la logique principale pour:
+1. Parsing des fichiers météo et solaire
+2. Calcul des ajustements de température
+3. Génération des données de prévisualisation
+4. Création des fichiers de sortie
+"""
+
+import logging
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class WeatherPoint:
+    """Point de données météo simplifié."""
+
+    month: int
+    day: int
+    hour: int  # 1-24 format
+    temperature: float
+    raw_line: str  # Ligne originale pour la réécriture
+
+
+@dataclass
+class SolarPoint:
+    """Point de données solaire simplifié."""
+
+    month: int
+    day: int
+    hour: int  # 0-23 format (MEZ/MESZ)
+    irradiance_by_facade: Dict[str, float]
+
+
+@dataclass
+class AdjustmentSample:
+    """Échantillon d'ajustement pour la prévisualisation."""
+
+    facade_id: str
+    datetime_str: str
+    original_temp: float
+    adjusted_temp: float
+    solar_irradiance: float
+
+
+@dataclass
+class PreviewData:
+    """Données pour la prévisualisation."""
+
+    facades: List[str]
+    total_adjustments: int
+    total_data_points: int
+    adjustments_by_facade: Dict[str, int]
+    sample_adjustments: List[AdjustmentSample]
+
+    # Données complètes pour la génération
+    weather_data: List[WeatherPoint]
+    solar_data: List[SolarPoint]
+    weather_file_header: str
+    threshold: float
+    delta_t: float
+
+    @property
+    def total_facades(self) -> int:
+        return len(self.facades)
+
+
+class WeatherParser:
+    """Parser simplifié pour les fichiers météo .dat."""
+
+    def parse(self, file_path: str) -> Tuple[str, List[WeatherPoint]]:
+        """
+        Parse le fichier météo et retourne le header et les données.
+
+        Returns:
+            Tuple[header, weather_points]
+        """
+        with open(file_path, "r", encoding="iso-8859-1") as f:
+            lines = f.readlines()
+
+        # Trouver où commence les données (après "*** ")
+        data_start = 0
+        header_lines = []
+
+        for i, line in enumerate(lines):
+            if line.strip().startswith("***"):
+                header_lines.append(line)
+                data_start = i + 1
+                break
+            else:
+                header_lines.append(line)
+
+        header = "".join(header_lines)
+        weather_points = []
+
+        # Parser les lignes de données (ignorer les lignes vides et les commentaires)
+        for line in lines[data_start:]:
+            line = line.strip()
+            if line and not line.startswith("*"):
+                try:
+                    parts = line.split()
+                    if len(parts) >= 17:  # S'assurer qu'on a tous les champs
+                        # Format: RW HW MM DD HH t p WR WG N x RF B D A E IL
+                        weather_points.append(
+                            WeatherPoint(
+                                month=int(parts[2]),
+                                day=int(parts[3]),
+                                hour=int(parts[4]),  # Format 1-24
+                                temperature=float(parts[5]),
+                                raw_line=line + "\n",  # Ajouter le retour à la ligne
+                            )
+                        )
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Impossible de parser la ligne: {line}: {e}")
+
+        logger.info(f"Parsed {len(weather_points)} weather points from {file_path}")
+        return header, weather_points
+
+
+class SolarParser:
+    """Parser simplifié pour les fichiers solaire HTML."""
+
+    def parse(self, file_path: str) -> List[SolarPoint]:
+        """Parse le fichier HTML et retourne les données solaires."""
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Rechercher les façades dans les headers du tableau
+        # Pattern: "Gesamte solare Einstrahlung, f3$Building body, W/m2"
+        facade_pattern = r"Gesamte solare Einstrahlung, (f\d+\$Building body), W/m2"
+        facades = re.findall(facade_pattern, content)
+
+        # Nettoyer les noms de façades (remplacer $ par espace)
+        facades = [facade.replace("$", " ") for facade in facades]
+
+        logger.info(f"Found facades: {facades}")
+
+        solar_points = []
+
+        # Rechercher les lignes de données avec regex
+        # Pattern pour les lignes complètes avec date et valeurs
+        data_pattern = r"<td class=value>(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})"
+
+        # Diviser le contenu en lignes pour faciliter le parsing
+        lines = content.split("\n")
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
+            # Chercher une ligne avec date/heure
+            date_match = re.search(data_pattern, line)
+            if date_match:
+                day = int(date_match.group(1))
+                month = int(date_match.group(2))
+                hour = int(date_match.group(4))  # Format 01-24, mais on veut 0-23
+
+                # Convertir en format 0-23
+                hour_0_23 = hour - 1 if hour > 0 else 23
+
+                # Chercher les valeurs dans les lignes suivantes
+                irradiance_values = {}
+
+                # Rechercher les valeurs numériques dans les lignes suivantes
+                for j in range(
+                    1, min(len(facades) + 1, 5)
+                ):  # Limite à 5 lignes suivantes
+                    if i + j < len(lines):
+                        value_line = lines[i + j]
+                        value_match = re.search(
+                            r"<td class=value>([0-9.]+)", value_line
+                        )
+                        if value_match and j - 1 < len(facades):
+                            try:
+                                value = float(value_match.group(1))
+                                facade_name = facades[j - 1]
+                                irradiance_values[facade_name] = value
+                            except (ValueError, IndexError):
+                                pass
+
+                # Si on a trouvé des valeurs, créer le point solaire
+                if irradiance_values:
+                    solar_points.append(
+                        SolarPoint(
+                            month=month,
+                            day=day,
+                            hour=hour_0_23,  # Format 0-23
+                            irradiance_by_facade=irradiance_values,
+                        )
+                    )
+
+                # Avancer dans le fichier
+                i += len(facades) + 1
+            else:
+                i += 1
+
+        logger.info(
+            f"Parsed {len(solar_points)} solar points with {len(facades)} facades"
+        )
+        return solar_points
+
+
+class SoschuProcessor:
+    """Processeur principal pour les ajustements de température."""
+
+    def __init__(self):
+        self.weather_parser = WeatherParser()
+        self.solar_parser = SolarParser()
+
+    def preview_adjustments(
+        self, weather_file: str, solar_file: str, threshold: float, delta_t: float
+    ) -> PreviewData:
+        """Génère la prévisualisation des ajustements."""
+
+        # Parser les fichiers
+        weather_header, weather_data = self.weather_parser.parse(weather_file)
+        solar_data = self.solar_parser.parse(solar_file)
+
+        # Créer un index des données solaires pour un accès rapide
+        solar_index = {}
+        for solar_point in solar_data:
+            # Convertir l'heure solaire (0-23) en heure météo (1-24)
+            weather_hour = solar_point.hour + 1 if solar_point.hour < 23 else 24
+            key = (solar_point.month, solar_point.day, weather_hour)
+            solar_index[key] = solar_point
+
+        # Calculer les ajustements
+        facades = []
+        if solar_data:
+            facades = list(solar_data[0].irradiance_by_facade.keys())
+
+        adjustments_by_facade = {facade: 0 for facade in facades}
+        sample_adjustments = []
+        total_adjustments = 0
+
+        # Limiter les échantillons pour la performance
+        max_samples_per_facade = 5
+        samples_collected = {facade: 0 for facade in facades}
+
+        for weather_point in weather_data:
+            key = (weather_point.month, weather_point.day, weather_point.hour)
+
+            if key in solar_index:
+                solar_point = solar_index[key]
+
+                for facade, irradiance in solar_point.irradiance_by_facade.items():
+                    if irradiance > threshold:
+                        adjustments_by_facade[facade] += 1
+                        total_adjustments += 1
+
+                        # Collecter des échantillons pour la prévisualisation
+                        if samples_collected[facade] < max_samples_per_facade:
+                            sample_adjustments.append(
+                                AdjustmentSample(
+                                    facade_id=facade,
+                                    datetime_str=f"{weather_point.day:02d}.{weather_point.month:02d} {weather_point.hour:02d}:00",
+                                    original_temp=weather_point.temperature,
+                                    adjusted_temp=weather_point.temperature + delta_t,
+                                    solar_irradiance=irradiance,
+                                )
+                            )
+                            samples_collected[facade] += 1
+
+        return PreviewData(
+            facades=facades,
+            total_adjustments=total_adjustments,
+            total_data_points=len(weather_data),
+            adjustments_by_facade=adjustments_by_facade,
+            sample_adjustments=sample_adjustments,
+            weather_data=weather_data,
+            solar_data=solar_data,
+            weather_file_header=weather_header,
+            threshold=threshold,
+            delta_t=delta_t,
+        )
+
+    def generate_files(self, preview_data: PreviewData, output_dir: str) -> List[str]:
+        """Génère les fichiers de sortie basés sur les données de prévisualisation."""
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        generated_files = []
+
+        # Créer un index des données solaires
+        solar_index = {}
+        for solar_point in preview_data.solar_data:
+            weather_hour = solar_point.hour + 1 if solar_point.hour < 23 else 24
+            key = (solar_point.month, solar_point.day, weather_hour)
+            solar_index[key] = solar_point
+
+        # Générer un fichier par façade
+        for facade in preview_data.facades:
+            filename = f"{facade.replace(' ', '_')}.dat"
+            output_file = output_path / filename
+
+            with open(output_file, "w", encoding="iso-8859-1") as f:
+                # Écrire le header
+                f.write(preview_data.weather_file_header)
+
+                # Écrire les données ajustées
+                for weather_point in preview_data.weather_data:
+                    key = (weather_point.month, weather_point.day, weather_point.hour)
+
+                    # Vérifier s'il faut ajuster la température pour cette façade
+                    adjusted_temp = weather_point.temperature
+
+                    if key in solar_index:
+                        solar_point = solar_index[key]
+                        irradiance = solar_point.irradiance_by_facade.get(facade, 0)
+
+                        if irradiance > preview_data.threshold:
+                            adjusted_temp = (
+                                weather_point.temperature + preview_data.delta_t
+                            )
+
+                    # Remplacer la température dans la ligne originale
+                    parts = weather_point.raw_line.split()
+                    if len(parts) >= 6:
+                        parts[5] = f"{adjusted_temp:.1f}"
+                        adjusted_line = " ".join(parts) + "\n"
+                    else:
+                        adjusted_line = weather_point.raw_line
+
+                    f.write(adjusted_line)
+
+            generated_files.append(str(output_file))
+            logger.info(f"Generated file: {output_file}")
+
+        return generated_files
