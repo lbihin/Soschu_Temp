@@ -32,8 +32,9 @@ class WeatherPoint:
     hour: int  # 1-24 format
     temperature: float
     raw_line: str  # Ligne originale pour la réécriture
+    year: int = 2045  # Année par défaut, peut être modifiée lors du parsing
 
-    def to_datetime_utc(self, year: int = 2045) -> datetime:
+    def to_datetime_utc(self) -> datetime:
         """
         Convertit l'heure MEZ 1-24 vers UTC pour la comparaison.
         Les fichiers .dat utilisent l'heure MEZ fixe (sans passage à l'heure d'été).
@@ -42,7 +43,7 @@ class WeatherPoint:
         hour_0_23 = self.hour - 1
 
         # Créer un datetime naïf en MEZ
-        dt_naive = datetime(year, self.month, self.day, hour_0_23, 0, 0)
+        dt_naive = datetime(self.year, self.month, self.day, hour_0_23, 0, 0)
 
         # Créer un datetime avec timezone MEZ (UTC+1) fixe sans tenir compte de l'heure d'été
         dt_mez = dt_naive.replace(tzinfo=timezone(timedelta(hours=1)))
@@ -66,14 +67,16 @@ class SolarPoint:
     hour: int  # 0-23 format (MEZ/MESZ)
     irradiance_by_facade: Dict[str, float]
     is_dst: bool = False  # Flag pour indiquer si c'est l'heure d'été
+    year: int = 2045  # Année extraite du fichier HTML
 
-    def to_datetime_utc(self, year: int = 2045) -> datetime:
+    def to_datetime_utc(self) -> datetime:
         """
         Convertit l'heure HTML (0-23 MEZ/MESZ) vers UTC pour la comparaison.
         Les fichiers HTML tiennent compte du passage à l'heure d'été (MESZ).
+        Utilise l'année extraite du fichier HTML.
         """
         # Créer un datetime naïf
-        dt_naive = datetime(year, self.month, self.day, self.hour, 0, 0)
+        dt_naive = datetime(self.year, self.month, self.day, self.hour, 0, 0)
 
         # Appliquer la timezone MEZ/MESZ (Europe/Berlin)
         dt_local = MEZ_TIMEZONE.localize(dt_naive, is_dst=self.is_dst)
@@ -86,7 +89,7 @@ class SolarPoint:
     def get_original_datetime_str(self) -> str:
         """Renvoie la date/heure au format original du fichier HTML (0-23 MEZ/MESZ)"""
         time_suffix = "MESZ" if self.is_dst else "MEZ"
-        return f"{self.day:02d}.{self.month:02d} {self.hour:02d}:00 {time_suffix}"
+        return f"{self.day:02d}.{self.month:02d}.{self.year} {self.hour:02d}:00 {time_suffix}"
 
 
 @dataclass
@@ -131,9 +134,13 @@ class PreviewData:
 class WeatherParser:
     """Parser simplifié pour les fichiers météo .dat."""
 
-    def parse(self, file_path: str) -> Tuple[str, List[WeatherPoint]]:
+    def parse(self, file_path: str, year: int = 2045) -> Tuple[str, List[WeatherPoint]]:
         """
         Parse le fichier météo et retourne le header et les données.
+
+        Args:
+            file_path: Chemin du fichier météo
+            year: Année à utiliser (par défaut 2045)
 
         Returns:
             Tuple[header, weather_points]
@@ -184,6 +191,7 @@ class WeatherParser:
                                 hour=int(parts[4]),  # Format 1-24
                                 temperature=float(parts[5]),
                                 raw_line=line + "\n",  # Ajouter le retour à la ligne
+                                year=year,  # Utiliser l'année fournie
                             )
                         )
                 except (ValueError, IndexError) as e:
@@ -203,7 +211,7 @@ class SolarParser:
 
         # Rechercher les façades dans les headers du tableau
         # Pattern: "Gesamte solare Einstrahlung, f3$Building body, W/m2"
-        facade_pattern = r"Gesamte solare Einstrahlung, (f\d+\$Building body), W/m2"
+        facade_pattern = r"Gesamte solare Einstrahlung, (f\d+\$Building body\d*), W/m2"
         facades = re.findall(facade_pattern, content)
 
         # Nettoyer les noms de façades (remplacer $ par espace)
@@ -267,13 +275,14 @@ class SolarParser:
                             hour=hour,  # Format 0-23
                             irradiance_by_facade=irradiance_values,
                             is_dst=is_dst,  # Ajouter le drapeau d'heure d'été
+                            year=year,  # Ajouter l'année extraite du fichier HTML
                         )
                     )
 
                     # Log pour le debugging
                     dst_info = "MESZ" if is_dst else "MEZ"
                     logger.debug(
-                        f"Parsed solar point: {month:02d}/{day:02d} {hour:02d}:{minute:02d} ({dst_info})"
+                        f"Parsed solar point: {year}, {month:02d}/{day:02d} {hour:02d}:{minute:02d} ({dst_info})"
                     )
 
                 # Avancer dans le fichier
@@ -302,6 +311,16 @@ class SoschuProcessor:
         # Parser les fichiers
         weather_header, weather_data = self.weather_parser.parse(weather_file)
         solar_data = self.solar_parser.parse(solar_file)
+
+        # Récupérer l'année depuis les données solaires (si disponible)
+        year_from_solar = 2045  # Valeur par défaut
+        if solar_data and hasattr(solar_data[0], "year"):
+            year_from_solar = solar_data[0].year
+            logger.info(f"Année extraite du fichier solar: {year_from_solar}")
+
+            # Appliquer l'année aux données météo
+            for weather_point in weather_data:
+                weather_point.year = year_from_solar
 
         # Créer un index des données solaires pour un accès rapide (basé sur UTC)
         solar_index = {}
