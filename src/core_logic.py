@@ -11,11 +11,16 @@ Ce module contient la logique principale pour:
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import pytz
+
 logger = logging.getLogger(__name__)
+
+# Définition de la timezone MEZ/MESZ (Europe/Berlin)
+MEZ_TIMEZONE = pytz.timezone("Europe/Berlin")
 
 
 @dataclass
@@ -28,6 +33,29 @@ class WeatherPoint:
     temperature: float
     raw_line: str  # Ligne originale pour la réécriture
 
+    def to_datetime_utc(self, year: int = 2045) -> datetime:
+        """
+        Convertit l'heure MEZ 1-24 vers UTC pour la comparaison.
+        Les fichiers .dat utilisent l'heure MEZ fixe (sans passage à l'heure d'été).
+        """
+        # Convertir l'heure 1-24 en format 0-23
+        hour_0_23 = self.hour - 1
+
+        # Créer un datetime naïf en MEZ
+        dt_naive = datetime(year, self.month, self.day, hour_0_23, 0, 0)
+
+        # Créer un datetime avec timezone MEZ (UTC+1) fixe sans tenir compte de l'heure d'été
+        dt_mez = dt_naive.replace(tzinfo=timezone(timedelta(hours=1)))
+
+        # Convertir en UTC
+        dt_utc = dt_mez.astimezone(timezone.utc)
+
+        return dt_utc
+
+    def get_original_datetime_str(self) -> str:
+        """Renvoie la date/heure au format original du fichier DAT (1-24 MEZ)"""
+        return f"{self.day:02d}.{self.month:02d} {self.hour:02d}:00"
+
 
 @dataclass
 class SolarPoint:
@@ -37,6 +65,28 @@ class SolarPoint:
     day: int
     hour: int  # 0-23 format (MEZ/MESZ)
     irradiance_by_facade: Dict[str, float]
+    is_dst: bool = False  # Flag pour indiquer si c'est l'heure d'été
+
+    def to_datetime_utc(self, year: int = 2045) -> datetime:
+        """
+        Convertit l'heure HTML (0-23 MEZ/MESZ) vers UTC pour la comparaison.
+        Les fichiers HTML tiennent compte du passage à l'heure d'été (MESZ).
+        """
+        # Créer un datetime naïf
+        dt_naive = datetime(year, self.month, self.day, self.hour, 0, 0)
+
+        # Appliquer la timezone MEZ/MESZ (Europe/Berlin)
+        dt_local = MEZ_TIMEZONE.localize(dt_naive, is_dst=self.is_dst)
+
+        # Convertir en UTC
+        dt_utc = dt_local.astimezone(timezone.utc)
+
+        return dt_utc
+
+    def get_original_datetime_str(self) -> str:
+        """Renvoie la date/heure au format original du fichier HTML (0-23 MEZ/MESZ)"""
+        time_suffix = "MESZ" if self.is_dst else "MEZ"
+        return f"{self.day:02d}.{self.month:02d} {self.hour:02d}:00 {time_suffix}"
 
 
 @dataclass
@@ -45,11 +95,15 @@ class AdjustmentSample:
 
     facade_id: str
     datetime_str: str  # Format commun pour affichage
-    weather_datetime_str: str  # Format date/heure pour le fichier météo DAT
-    solar_datetime_str: str  # Format date/heure pour le fichier solaire HTML
+    weather_datetime_str: str  # Format date/heure pour le fichier météo DAT (1-24 MEZ)
+    solar_datetime_str: (
+        str  # Format date/heure pour le fichier solaire HTML (0-23 MEZ/MESZ)
+    )
     original_temp: float
     adjusted_temp: float
     solar_irradiance: float
+    weather_datetime_utc: Optional[datetime] = None  # Timestamp UTC du point météo
+    solar_datetime_utc: Optional[datetime] = None  # Timestamp UTC du point solaire
 
 
 @dataclass
@@ -142,7 +196,7 @@ class WeatherParser:
 class SolarParser:
     """Parser simplifié pour les fichiers solaire HTML."""
 
-    def parse(self, file_path: str) -> List[SolarPoint]:
+    def parse(self, file_path: str, year: int = 2045) -> List[SolarPoint]:
         """Parse le fichier HTML et retourne les données solaires."""
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -175,10 +229,14 @@ class SolarParser:
             if date_match:
                 day = int(date_match.group(1))
                 month = int(date_match.group(2))
-                hour = int(date_match.group(4))  # Format 01-24, mais on veut 0-23
+                year = int(date_match.group(3))
+                hour = int(date_match.group(4))  # Format 0-23 dans le HTML
+                minute = int(date_match.group(5))
 
-                # Convertir en format 0-23
-                hour_0_23 = hour - 1 if hour > 0 else 23
+                # Déterminer si c'est l'heure d'été (MESZ) ou l'heure d'hiver (MEZ)
+                dt_naive = datetime(year, month, day, hour, minute)
+                dt_aware = MEZ_TIMEZONE.localize(dt_naive)
+                is_dst = dt_aware.dst() != timedelta(0)
 
                 # Chercher les valeurs dans les lignes suivantes
                 irradiance_values = {}
@@ -206,9 +264,16 @@ class SolarParser:
                         SolarPoint(
                             month=month,
                             day=day,
-                            hour=hour_0_23,  # Format 0-23
+                            hour=hour,  # Format 0-23
                             irradiance_by_facade=irradiance_values,
+                            is_dst=is_dst,  # Ajouter le drapeau d'heure d'été
                         )
+                    )
+
+                    # Log pour le debugging
+                    dst_info = "MESZ" if is_dst else "MEZ"
+                    logger.debug(
+                        f"Parsed solar point: {month:02d}/{day:02d} {hour:02d}:{minute:02d} ({dst_info})"
                     )
 
                 # Avancer dans le fichier
@@ -238,12 +303,12 @@ class SoschuProcessor:
         weather_header, weather_data = self.weather_parser.parse(weather_file)
         solar_data = self.solar_parser.parse(solar_file)
 
-        # Créer un index des données solaires pour un accès rapide
+        # Créer un index des données solaires pour un accès rapide (basé sur UTC)
         solar_index = {}
         for solar_point in solar_data:
-            # Convertir l'heure solaire (0-23) en heure météo (1-24)
-            weather_hour = solar_point.hour + 1 if solar_point.hour < 23 else 24
-            key = (solar_point.month, solar_point.day, weather_hour)
+            # Convertir en UTC pour la comparaison
+            utc_dt = solar_point.to_datetime_utc()
+            key = (utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour, utc_dt.minute)
             solar_index[key] = solar_point
 
         # Calculer les ajustements
@@ -260,7 +325,9 @@ class SoschuProcessor:
         samples_collected = {facade: 0 for facade in facades}
 
         for weather_point in weather_data:
-            key = (weather_point.month, weather_point.day, weather_point.hour)
+            # Convertir en UTC pour la comparaison
+            utc_dt = weather_point.to_datetime_utc()
+            key = (utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour, utc_dt.minute)
 
             if key in solar_index:
                 solar_point = solar_index[key]
@@ -272,28 +339,36 @@ class SoschuProcessor:
 
                         # Collecter des échantillons pour la prévisualisation
                         if samples_collected[facade] < max_samples_per_facade:
-                            # Format de date pour les fichiers DAT (1-24 hours format)
-                            weather_datetime = f"{weather_point.day:02d}.{weather_point.month:02d} {weather_point.hour:02d}:00"
+                            # Formats date/heure dans leurs formats originaux respectifs
+                            weather_datetime_str = (
+                                weather_point.get_original_datetime_str()
+                            )  # Format 1-24 MEZ
+                            solar_datetime_str = (
+                                solar_point.get_original_datetime_str()
+                            )  # Format 0-23 MEZ/MESZ
 
-                            # Format de date pour les fichiers HTML (0-23 hours format)
-                            # Conversion de l'heure weather (1-24) à l'heure solar (0-23)
-                            solar_hour = (
-                                weather_point.hour - 1 if weather_point.hour > 1 else 23
-                            )
-                            solar_datetime = f"{solar_point.day:02d}.{solar_point.month:02d} {solar_hour:02d}:00"
+                            # Format commun pour affichage (on garde le format météo pour la cohérence)
+                            datetime_str = weather_datetime_str
 
                             sample_adjustments.append(
                                 AdjustmentSample(
                                     facade_id=facade,
-                                    datetime_str=f"{weather_point.day:02d}.{weather_point.month:02d} {weather_point.hour:02d}:00",
-                                    weather_datetime_str=weather_datetime,
-                                    solar_datetime_str=solar_datetime,
+                                    datetime_str=datetime_str,
+                                    weather_datetime_str=weather_datetime_str,
+                                    solar_datetime_str=solar_datetime_str,
                                     original_temp=weather_point.temperature,
                                     adjusted_temp=weather_point.temperature + delta_t,
                                     solar_irradiance=irradiance,
+                                    weather_datetime_utc=utc_dt,
+                                    solar_datetime_utc=solar_point.to_datetime_utc(),
                                 )
                             )
                             samples_collected[facade] += 1
+
+                            # Log pour debugging
+                            logger.debug(
+                                f"Match trouvé: {weather_datetime_str} (DAT) == {solar_datetime_str} (HTML)"
+                            )
 
         return PreviewData(
             facades=facades,
@@ -316,11 +391,12 @@ class SoschuProcessor:
 
         generated_files = []
 
-        # Créer un index des données solaires
+        # Créer un index des données solaires (basé sur UTC)
         solar_index = {}
         for solar_point in preview_data.solar_data:
-            weather_hour = solar_point.hour + 1 if solar_point.hour < 23 else 24
-            key = (solar_point.month, solar_point.day, weather_hour)
+            # Convertir en UTC pour la comparaison
+            utc_dt = solar_point.to_datetime_utc()
+            key = (utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour, utc_dt.minute)
             solar_index[key] = solar_point
 
         # Générer un fichier par façade
@@ -334,7 +410,15 @@ class SoschuProcessor:
 
                 # Écrire les données ajustées
                 for weather_point in preview_data.weather_data:
-                    key = (weather_point.month, weather_point.day, weather_point.hour)
+                    # Convertir en UTC pour la comparaison
+                    utc_dt = weather_point.to_datetime_utc()
+                    key = (
+                        utc_dt.year,
+                        utc_dt.month,
+                        utc_dt.day,
+                        utc_dt.hour,
+                        utc_dt.minute,
+                    )
 
                     # Vérifier s'il faut ajuster la température pour cette façade
                     adjusted_temp = weather_point.temperature
@@ -346,6 +430,12 @@ class SoschuProcessor:
                         if irradiance > preview_data.threshold:
                             adjusted_temp = (
                                 weather_point.temperature + preview_data.delta_t
+                            )
+                            logger.debug(
+                                f"Ajustement pour {facade}: {weather_point.get_original_datetime_str()} (DAT) -> "
+                                f"{solar_point.get_original_datetime_str()} (HTML), "
+                                f"Irradiance: {irradiance:.1f}, "
+                                f"Temp: {weather_point.temperature:.1f} -> {adjusted_temp:.1f}"
                             )
 
                     # Méthode ultra-précise pour remplacer uniquement la température
