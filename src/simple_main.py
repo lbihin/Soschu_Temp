@@ -242,15 +242,57 @@ class SoschuApp:
         self.progress.pack(fill=tk.X, pady=5)
         self.progress.start()
 
-        # Lancer le traitement dans un thread
-        thread = threading.Thread(target=self._do_preview)
-        thread.daemon = True
-        thread.start()
+        # Lancer le traitement directement (sans thread pour debug)
+        logger.info("Lancement direct de la prévisualisation sans thread pour debug")
+        processor = SoschuProcessor()
+
+        try:
+            self.preview_data = processor.preview_adjustments(
+                weather_file=self.weather_file.get(),
+                solar_file=self.solar_file.get(),
+                threshold=float(self.threshold.get()),
+                delta_t=float(self.delta_t.get()),
+            )
+
+            # Arrêter la progression
+            self.progress.stop()
+            self.progress.pack_forget()
+            self.preview_btn.config(state=tk.NORMAL)
+
+            logger.info(
+                f"Prévisualisation directe terminée, données: {self.preview_data is not None}"
+            )
+
+            # Lancer directement le wizard
+            if self.preview_data:
+                logger.info("Lancement direct du wizard")
+                self.show_preview_wizard()
+            else:
+                logger.error("Pas de données de prévisualisation")
+                messagebox.showerror(
+                    "Erreur", "Aucune donnée de prévisualisation générée"
+                )
+
+        except Exception as e:
+            logger.error(f"Erreur lors de la prévisualisation directe: {e}")
+            import traceback
+
+            logger.error(traceback.format_exc())
+            self.progress.stop()
+            self.progress.pack_forget()
+            self.preview_btn.config(state=tk.NORMAL)
+            messagebox.showerror("Erreur de prévisualisation", str(e))
 
     def _do_preview(self):
         """Effectue la prévisualisation (dans le thread)."""
         try:
+            logger.info("Début du traitement de prévisualisation")
             processor = SoschuProcessor()
+
+            # Log des paramètres
+            logger.info(f"Fichier météo: {self.weather_file.get()}")
+            logger.info(f"Fichier solaire: {self.solar_file.get()}")
+            logger.info(f"Seuil: {self.threshold.get()}, Delta T: {self.delta_t.get()}")
 
             self.preview_data = processor.preview_adjustments(
                 weather_file=self.weather_file.get(),
@@ -259,11 +301,29 @@ class SoschuApp:
                 delta_t=float(self.delta_t.get()),
             )
 
+            logger.info(
+                f"Prévisualisation terminée avec succès: {self.preview_data is not None}"
+            )
+            if self.preview_data:
+                logger.info(
+                    f"Nombre de façades trouvées: {len(self.preview_data.facades)}"
+                )
+
             # Revenir au thread principal pour l'UI
-            self.root.after(0, self._preview_completed)
+            logger.info("Programmation du callback _preview_completed")
+
+            # Vérifier si la méthode est appelée correctement
+            def check_callback():
+                logger.info("Exécution du callback de vérification")
+                self._preview_completed()
+
+            self.root.after(100, check_callback)
 
         except Exception as e:
             logger.error(f"Erreur lors de la prévisualisation: {e}")
+            import traceback
+
+            logger.error(traceback.format_exc())
             self.root.after(0, lambda: self._preview_error(str(e)))
 
     def _preview_completed(self):
@@ -272,9 +332,15 @@ class SoschuApp:
         self.progress.pack_forget()
         self.preview_btn.config(state=tk.NORMAL)
 
+        logger.info(
+            f"Prévisualisation terminée, données: {self.preview_data is not None}"
+        )
+
         if self.preview_data:
+            logger.info("Lancement du wizard de prévisualisation")
             self.show_preview_wizard()
         else:
+            logger.error("Aucune donnée de prévisualisation disponible")
             messagebox.showerror("Erreur", "Aucune donnée de prévisualisation générée")
 
     def _preview_error(self, error_msg: str):
@@ -286,18 +352,29 @@ class SoschuApp:
 
     def show_preview_wizard(self):
         """Affiche le wizard de prévisualisation avec navigation guidée."""
+        logger.info("Entrée dans la méthode show_preview_wizard")
+
         if not self.preview_data:
+            logger.error("Sortie prématurée - pas de données de prévisualisation")
             return
 
-        # Créer la fenêtre wizard
-        wizard = tk.Toplevel(self.root)
-        wizard.title("Assistant de prévisualisation - Soschu Temperature Tool")
-        wizard.geometry("900x700")
-        wizard.resizable(True, True)
-        wizard.grab_set()  # Rendre la fenêtre modale
+        logger.info("Création de la fenêtre wizard")
+        try:
+            # Créer la fenêtre wizard
+            wizard = tk.Toplevel(self.root)
+            wizard.title("Assistant de prévisualisation - Soschu Temperature Tool")
+            wizard.geometry("900x700")
+            wizard.resizable(True, True)
+            wizard.grab_set()  # Rendre la fenêtre modale
 
-        # Centrer la fenêtre sur l'écran
-        wizard.transient(self.root)
+            # Centrer la fenêtre sur l'écran
+            wizard.transient(self.root)
+
+            logger.info("Fenêtre wizard créée avec succès")
+        except Exception as e:
+            logger.error(f"Erreur lors de la création du wizard: {e}")
+            messagebox.showerror("Erreur", f"Impossible de créer l'assistant: {str(e)}")
+            return
 
         # Variables pour la navigation
         current_step = tk.IntVar(value=0)
