@@ -9,7 +9,7 @@ easily extended for new formats.
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Protocol, Union
+from typing import Any, Dict, List, Union
 
 from weather import WeatherDataPoint, WeatherFileMetadata
 

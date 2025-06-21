@@ -7,7 +7,7 @@ in the TRY format, which contain hourly meteorological data for a full year.
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -101,9 +101,48 @@ class WeatherDataPoint(BaseModel):
         year = Config.get_year()  # Get year from configuration
         base_dt = datetime(year=year, month=self.month, day=self.day, hour=dt_hour)
 
+        # Add fixed MEZ timezone (UTC+1) for TRY data only (no MESZ)
+        # Using fixed offset to ensure no DST transitions
+
+        mez_timezone = timezone(timedelta(hours=1))  # Fixed UTC+1 (MEZ)
+        aware_dt = base_dt.replace(tzinfo=mez_timezone)
+
         # Use object.__setattr__ to avoid triggering validation
-        object.__setattr__(self, "timestamp", base_dt)
+        object.__setattr__(self, "timestamp", aware_dt)
         return self
+
+    @property
+    def is_summer_time(self) -> bool:
+        """
+        Check if the timestamp falls within the summer time period.
+
+        Returns:
+            True if the date is in summer time, False otherwise.
+        """
+        # Berlin timezone for TRY data (follows local DST rules)
+        berlin_tz = ZoneInfo("Europe/Berlin")
+        dt_with_tz = self.timestamp.replace(tzinfo=berlin_tz)
+
+        # Check if the date is in summer time
+        return dt_with_tz.dst() != timedelta(0)
+
+    def timestamp_with_timezone_as_str(self) -> str:
+        """
+        Get the timestamp as a string with timezone information.
+
+        Returns:
+            String representation of the timestamp with timezone
+        """
+        if self.timestamp is None:
+            return "Invalid timestamp"
+
+        # Berlin timezone for TRY data
+        berlin_tz = ZoneInfo("Europe/Berlin")
+        dt_with_tz = self.timestamp.replace(tzinfo=berlin_tz)
+
+        # Format the hour in 1-24 format
+        hour_24 = dt_with_tz.hour + 1
+        return f"{dt_with_tz.day:02d}-{dt_with_tz.month:02d}-{dt_with_tz.year} {hour_24:02d}:{dt_with_tz.minute:02d}"
 
     def to_datetime_for_gui(self) -> str:
         """

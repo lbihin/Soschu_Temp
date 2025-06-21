@@ -13,6 +13,7 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from lxml import html as lxml_html
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -381,22 +382,11 @@ class SolarDataParser:
         """
         parsed_dt = None
 
-        try:
-            # Try German format with dots
-            parsed_dt = datetime.strptime(timestamp_text, "%d.%m.%Y %H:%M")
-        except ValueError:
-            try:
-                # Try without leading zeros
-                parts = timestamp_text.split()
-                if len(parts) == 2:
-                    date_part, time_part = parts
-                    day, month, year = date_part.split(".")
-                    hour, minute = time_part.split(":")
-                    parsed_dt = datetime(
-                        int(year), int(month), int(day), int(hour), int(minute)
-                    )
-            except (ValueError, IndexError):
-                pass
+        # Try German format with dots
+        parsed_dt = datetime.strptime(timestamp_text, "%d.%m.%Y %H:%M")
+        berlin_tz = ZoneInfo("Europe/Berlin")
+        # Localize the naive datetime to Berlin timezone
+        parsed_dt = parsed_dt.replace(tzinfo=berlin_tz)
 
         if parsed_dt is None:
             raise ValueError(f"Cannot parse timestamp: {timestamp_text}")

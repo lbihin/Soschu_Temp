@@ -9,13 +9,15 @@ import logging
 import re
 import uuid
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, model_validator
 
 from config import Config
 from output_generator import OutputGenerator, create_try_generator
+from preview import Season
 from solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
 from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
 
@@ -23,15 +25,83 @@ from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
 logger = logging.getLogger(__name__)
 
 
+class FacadeAdjustedSample(BaseModel):
+    """Represents a single adjusted sample for preview purposes."""
+
+    facade_id: str
+    building_body: str
+    season: Season
+    timestamp: datetime
+    temperature: float
+    adjusted_temperature: float
+    solar_irradiance: float
+
+    def get_facade_fullname(self) -> str:
+        """Get a full descriptive name for this facade sample."""
+        return f"{self.facade_id} {self.building_body})"
+    
+    def as_preview_data(self) -> Dict[str, Any]:
+        """
+        Convert this sample to a dictionary suitable for preview display.
+
+        Returns:
+            Dictionary with formatted data for preview
+        """
+        return {
+            "timestamp_weather": self.timestamp,
+            "timestamp_ida_ice": self.timestamp,
+            "facade_id": self.facade_id,
+            "building_body": self.building_body,
+            "original_temp": self.temperature,
+            "adjusted_temp": self.adjusted_temperature,
+            "solar_irradiance": self.solar_irradiance,
+            "season": self.season,
+        }
+    def extract_timestamp(self) -> tuple[str, str]:
+        """
+        Extract formatted datetime strings for weather and solar data.
+
+        Returns:
+            Tuple containing formatted datetime strings for weather and solar data
+        """
+        return (
+            self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+    def timestamp_as_mez(self) -> datetime:
+        """ Convert timestamp in MEZ format (UTC+1) for display purposes."""
+
+       # Berlin timezone for TRY data
+        berlin_tz = ZoneInfo("Europe/Berlin")
+        dt_with_tz = self.timestamp.replace(tzinfo=berlin_tz)
+        return dt_with_tz
+    
+    def weather_timestamp_as_str(self) -> str:
+        """
+        Format the timestamp as a string in the format "DD-MM-YYYY HH:MM" in 1-24 hour format."""
+        dt_with_tz = self.timestamp_as_mez()
+        # Format the hour in 1-24 format
+        hour_24 = dt_with_tz.hour + 1
+        return f"{dt_with_tz.day:02d}-{dt_with_tz.month:02d}-{dt_with_tz.year} {hour_24:02d}:{dt_with_tz.minute:02d}"
+    
+
 class FacadeProcessingResult(BaseModel):
     """Résultat du traitement pour une façade spécifique."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     facade_id: str
     building_body: str
+    data: List[tuple[WeatherDataPoint, SolarDataPoint]] = Field(
+        default_factory=list,
+        description="List of tuples containing weather data points and corresponding solar data points",
+    )
     wheater_data: List[WeatherDataPoint]
     solar_data: List[SolarDataPoint]
     adjustments_count: int = Field(ge=0, description="Number of adjustments made")
+    adjusted_indexes: List = Field(
+        default_factory=list,
+        description="Indexes of weather data points that were adjusted",
+    )
 
     class Config:
         arbitrary_types_allowed = True
@@ -57,7 +127,7 @@ class FacadeProcessingResult(BaseModel):
     def get_full_name(self) -> str:
         """Get a full descriptive name for this facade processing result."""
         return f"{self.facade_id} {self.building_body}"
-    
+
     def get_percentage_adjusted(self) -> float:
         """
         Calculate the percentage of weather data points that were adjusted.
@@ -67,7 +137,10 @@ class FacadeProcessingResult(BaseModel):
         """
         if not self.wheater_data:
             return 0.0
-        return (self.adjustments_count / self.count_solar_data_points()) * 100.0    
+        return (self.adjustments_count / self.count_solar_data_points()) * 100.0
+
+    def get_adjusted_preview(self):
+        """Generate"""
 
 
 class ProcessingResult(BaseModel):
@@ -224,7 +297,7 @@ class FacadeProcessor:
         solar_data: List[SolarDataPoint],
         facade_id: str = "",
         building_body: str = "",
-    ) -> Optional[FacadeProcessingResult]:
+    ) -> Optional[Tuple[FacadeProcessingResult, List[FacadeAdjustedSample]]]:
         """
         Process weather data for a specific facade of a building body.
 
@@ -260,9 +333,12 @@ class FacadeProcessor:
 
         # Process each weather data point
         count_adjustments = 0
-        for weather_point in facade_weather_data:
+        adjusted_indexes = []
+        samples = []
+
+        for idx, weather_point in enumerate(facade_weather_data):
             # Find corresponding solar irradiance value
-            solar_irradiance = self._get_solar_irradiance_for_datetime(
+            solar_irradiance = self._search_solar_irradiance_by_datetime(
                 solar_lookup, weather_point
             )
 
@@ -271,24 +347,39 @@ class FacadeProcessor:
                 # Update the adjusted temperature
                 weather_point.adjusted_temperature += self.delta_t
                 count_adjustments += 1
+                adjusted_indexes.append(idx)
                 self.logger.debug(
                     f"Adjusted temperature for {weather_point.month:02d}-{weather_point.day:02d} "
                     f"{weather_point.hour:02d}:00 - Solar: {solar_irradiance:.1f} W/m² > {self.threshold} W/m², "
                     f"Temp: {weather_point.temperature:.1f}°C → {weather_point.adjusted_temperature:.1f}°C"
                 )
 
+                samples.append(FacadeAdjustedSample(
+                    facade_id=facade_id,
+                    building_body=building_body,
+                    season= Season.SUMMER if weather_point.is_summer_time else Season.WINTER,
+                    timestamp=weather_point.timestamp,
+                    temperature=weather_point.temperature,
+                    adjusted_temperature=weather_point.adjusted_temperature,
+                    solar_irradiance=solar_irradiance)
+                )
+
+
         self.logger.info(
             f"Made {count_adjustments} temperature adjustments out of {len(weather_data)} data points"
         )
 
         # Create and return the facade processing result
-        return FacadeProcessingResult(
+        facade_processing_result = FacadeProcessingResult(
             facade_id=facade_id,
             building_body=building_body,
             wheater_data=facade_weather_data,
             solar_data=solar_data,
             adjustments_count=count_adjustments,
+            adjusted_indexes=adjusted_indexes,
         )
+
+        return facade_processing_result, samples
 
     def _find_facade_column(
         self, solar_metadata: SolarFileMetadata, facade_id: str, building_body: str
@@ -340,7 +431,7 @@ class FacadeProcessor:
         )
         return lookup
 
-    def _get_solar_irradiance_for_datetime(
+    def _search_solar_irradiance_by_datetime(
         self,
         solar_lookup: Dict[datetime, float],
         weather_point: WeatherDataPoint,
@@ -358,8 +449,9 @@ class FacadeProcessor:
             None: If no matching timestamp exists in the lookup table
         """
         for lookup_solar_dt, solar_irradiance in solar_lookup.items():
-            # Compare naive timestamps directly
-            if weather_point.timestamp == lookup_solar_dt:
+            # Compare timestamps in UTC directly
+
+            if weather_point.timestamp.astimezone(timezone.utc) == lookup_solar_dt.astimezone(timezone.utc):
                 return solar_irradiance
 
 
@@ -376,7 +468,7 @@ class CoreProcessor:
         solar_file_path: str,
         threshold: float,
         delta_t: float,
-    ) -> ProcessingResult:
+    ) -> tuple[ProcessingResult, List[FacadeAdjustedSample]]:
         """
         Process all facades and return complete processing result.
         This method only handles data processing, not file generation.
@@ -419,16 +511,17 @@ class CoreProcessor:
             self.logger.info(f"Processing {facade_id} of {building_body}")
 
             # Process facade data
-            processing_result = facade_processor.process_facade_data(
+            if result := facade_processor.process_facade_data(
                 weather_data=weather_data,
                 solar_metadata=solar_metadata,
                 solar_data=solar_data,
                 facade_id=facade_id,
                 building_body=building_body,
-            )
+            ):
+                processing_result, samples = result
 
-            # Store results
-            processed_data[processing_result.id] = processing_result
+                # Store results
+                processed_data[processing_result.id] = processing_result
 
         # Create parameters dictionary
         parameters = {
@@ -440,7 +533,7 @@ class CoreProcessor:
         }
 
         # Create and return processing result
-        return ProcessingResult(**parameters)
+        return ProcessingResult(**parameters), samples
 
     def _extract_facade_combinations(
         self, solar_metadata: SolarFileMetadata

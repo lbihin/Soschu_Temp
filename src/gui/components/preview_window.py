@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, List, Optional
 
-from preview import PreviewService, PreviewSummaryData
+from preview import PreviewAdjustmentData, PreviewService, PreviewSummaryData
 
 # Configuration du logger pour ce module
 logger = logging.getLogger(__name__)
@@ -27,7 +27,8 @@ class PreviewWindow:
             generate_callback: Fonction à appeler pour générer les fichiers
         """
         self.parent = parent
-        self.summary = self._generate_preview_summary(preview_result)
+        self.summary_data = self._generate_preview_summary(preview_result)
+        self.samples_data = self._generate_preview_samples(preview_result)
         self.preview_result = preview_result
         self.generate_callback = generate_callback
         self.window = None
@@ -37,6 +38,12 @@ class PreviewWindow:
     ) -> PreviewSummaryData:
         """Génèrate the data for the summary tab."""
         return preview_service.get_summary()
+
+    def _generate_preview_samples(
+        self, preview_service: PreviewService
+    ) -> List[PreviewAdjustmentData]:
+        """Génère les échantillons d'ajustements pour l'onglet de prévisualisation."""
+        return preview_service.get_samples()
 
     def show(self):
         """Affiche la fenêtre de prévisualisation."""
@@ -56,14 +63,8 @@ class PreviewWindow:
         # Onglet Résumé
         self._create_summary_tab(notebook)
 
-        # # Onglet Détails par façade
-        # self._create_facade_details_tab(notebook)
-
-        # # Onglet Échantillon d'ajustements
-        # self._create_sample_adjustments_tab(notebook)
-
-        # # Onglet Paramètres
-        # self._create_parameters_tab(notebook)
+        # Onglet Échantillon d'ajustements
+        self._create_sample_adjustments_tab(notebook)
 
         # Boutons de contrôle
         self._create_control_buttons()
@@ -103,18 +104,18 @@ class PreviewWindow:
 
         info_text = f"""
 Fichiers d´entrée:
-    • Météo: {self.summary.weather_filename}
-    • IDA ICE: {self.summary.solar_filename}
+    • Météo: {self.summary_data.weather_filename}
+    • IDA ICE: {self.summary_data.solar_filename}
 
 Résumé des données:
-    • Nombre de Façades à traiter: {self.summary.count_facades}
-    • Total d'ajustements de température: {self.summary.count_adjustments}
-    • Nombre de points fichier météo: {self.summary.count_weather_data_points}
-    • Nombre  de points fichier irradiance solaire: {self.summary.count_weather_data_points}
+    • Nombre de Façades à traiter: {self.summary_data.count_facades}
+    • Total d'ajustements de température: {self.summary_data.count_adjustments}
+    • Nombre de points fichier météo: {self.summary_data.count_weather_data_points}
+    • Nombre  de points fichier irradiance solaire: {self.summary_data.count_weather_data_points}
 
 Paramètres de traitement:
-    • Seuil d'irradiance: {self.summary.threshold} W/m²
-    • Augmentation de température: {self.summary.delta_t} K
+    • Seuil d'irradiance: {self.summary_data.threshold} W/m²
+    • Augmentation de température: {self.summary_data.delta_t} K
                 """.strip()
 
         info_label = tk.Label(info_frame, text=info_text, justify=tk.LEFT, anchor="w")
@@ -155,7 +156,7 @@ Paramètres de traitement:
 
         # Add the data with alternating background colors
         for i, (facade_name, (adjustments, percentage)) in enumerate(
-            self.summary.table.items()
+            self.summary_data.table.items()
         ):
             tree.insert(
                 "",
@@ -164,53 +165,6 @@ Paramètres de traitement:
                 values=(f"{adjustments}", f"{percentage:.1f}%"),
                 tags=("oddrow" if i % 2 else "evenrow"),
             )
-        # Scrollbars
-        v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
-        h_scrollbar = ttk.Scrollbar(
-            tree_frame, orient=tk.HORIZONTAL, command=tree.xview
-        )
-        tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-
-    def _create_facade_details_tab(self, notebook):
-        """Crée l'onglet des détails par façade."""
-        frame = ttk.Frame(notebook)
-        notebook.add(frame, text="Détails par façade")
-
-        # Créer un Treeview pour afficher les façades
-        tree_frame = tk.Frame(frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        tree = ttk.Treeview(
-            tree_frame, columns=("adjustments", "percentage"), show="tree headings"
-        )
-        tree.heading("#0", text="Façade")
-        tree.heading("adjustments", text="Ajustements")
-        tree.heading("percentage", text="% des données")
-
-        tree.column("#0", width=300)
-        tree.column("adjustments", width=150, anchor="center")
-        tree.column("percentage", width=150, anchor="center")
-
-        # Ajouter les données
-        total_data_points = self.preview_result.parameters["weather_data_points"]
-        for (
-            facade_key,
-            adjustments,
-        ) in self.preview_result.adjustments_by_facade.items():
-            percentage = (
-                (adjustments / total_data_points * 100) if total_data_points > 0 else 0
-            )
-            tree.insert(
-                "",
-                tk.END,
-                text=facade_key,
-                values=(f"{adjustments:,}", f"{percentage:.1f}%"),
-            )
-
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
         h_scrollbar = ttk.Scrollbar(
@@ -282,60 +236,124 @@ Paramètres de traitement:
         tree.column("threshold", width=100, anchor="center")
 
         # Organiser les échantillons par façade et saison
-        facade_samples = {}
-        for adj in self.preview_result.sample_adjustments:
-            facade_key = f"{adj.facade_id} - {adj.building_body}"
-            if facade_key not in facade_samples:
-                facade_samples[facade_key] = {"summer": [], "winter": []}
+        for sample in self.samples_data:
+            # Obtenir les données à afficher
+            data = sample.get_preview_samples()
+            facade_name = data.get("facade_name", "Inconnu")
+            threshold = data.get("threshold", 0.0)
+            delta_t = data.get("delta_t", 0.0)
 
-            # Déterminer la saison basée sur le mois (approximation de l'heure d'été/hiver)
-            month = int(adj.datetime_str.split("-")[0])
-            season = "summer" if 3 <= month <= 9 else "winter"
-            facade_samples[facade_key][season].append(adj)
+            w_samples = data.get("samples", {})
+            # Organiser les échantillons par saison
+            summer_samples = w_samples.get("summer", [])
+            winter_samples = w_samples.get("winter", [])
 
-        # Ajouter les données organisées au tree
-        for facade_key, seasons in facade_samples.items():
-            facade_node = tree.insert(
-                "", tk.END, text=facade_key, values=("", "", "", "", "", "")
-            )
+            # Créer les noeuds pour l´hiver
+            for w_sample in winter_samples:
+                # Set weather timestamp in MEZ
+                weather_timestamp = w_sample.timestamp_with_timezone_as_str()
 
-            for season_name, adjustments in seasons.items():
-                if not adjustments:
-                    continue
+                # Set IDA ICE timestamp in MEZ/MESZ
+                ida_ice_timestamp = w_sample.timestamp.strftime("%d-%m-%Y %H:%M")
 
-                season_display = (
-                    "🌞 Période chaude (Mar-Sep)"
-                    if season_name == "summer"
-                    else "❄️ Période froide (Oct-Fév)"
-                )
-                season_node = tree.insert(
-                    facade_node,
+                temperature = w_sample.temperature
+                adjusted_tempeture = w_sample.adjusted_temperature
+
+                node = tree.insert(
+                    "",
                     tk.END,
-                    text=season_display,
-                    values=("", "", "", "", "", ""),
+                    text=f"{facade_name} - ❄️ Période heure d´hiver",
+                    values=(
+                        weather_timestamp,
+                        ida_ice_timestamp,
+                        f"{temperature:.1f}",
+                        f"{adjusted_tempeture:.1f}",
+                        f"{delta_t:.1f}",
+                        f"{threshold:.1f}",
+                    ),
                 )
+                tree.item(node, open=True)
+            # Créer les noeuds pour l'été
+            for s_sample in summer_samples:
+                # Set weather timestamp in MEZ
+                weather_timestamp = s_sample.timestamp.strftime("%d-%m-%Y %H:%M")
 
-                for adj in adjustments:
-                    # Déterminer si les heures correspondent ou s'il y a un décalage
-                    weather_time = adj.weather_datetime
-                    solar_time = adj.solar_datetime or "N/A"
+                # Set IDA ICE timestamp in MEZ/MESZ
+                ida_ice_timestamp = s_sample.timestamp.strftime("%d-%m-%Y %H:%M")
 
-                    tree.insert(
-                        season_node,
-                        tk.END,
-                        text="",
-                        values=(
-                            weather_time,
-                            solar_time,
-                            f"{adj.original_temp:.1f}",
-                            f"{adj.adjusted_temp:.1f}",
-                            f"{adj.solar_irradiance:.1f}",
-                            f"{adj.threshold:.1f}",
-                        ),
-                    )
+                temperature = s_sample.temperature
+                adjusted_tempeture = s_sample.adjusted_temperature
 
-            # Expand facade nodes by default
-            tree.item(facade_node, open=True)
+                node = tree.insert(
+                    "",
+                    tk.END,
+                    text=f"{facade_name} - 🌞 Période heure d´été",
+                    values=(
+                        weather_timestamp,
+                        ida_ice_timestamp,
+                        f"{temperature:.1f}",
+                        f"{adjusted_tempeture:.1f}",
+                        f"{delta_t:.1f}",
+                        f"{threshold:.1f}",
+                    ),
+                )
+                tree.item(node, open=True)
+
+        # for facade_name, samples in self.samples_data.items():
+        #     summer_sample, winter_sample = self.samples_data.get_samples()
+        # facade_samples = {}
+        # for adj in self.preview_result.sample_adjustments:
+        #     facade_key = f"{adj.facade_id} - {adj.building_body}"
+        #     if facade_key not in facade_samples:
+        #         facade_samples[facade_key] = {"summer": [], "winter": []}
+
+        #     # Déterminer la saison basée sur le mois (approximation de l'heure d'été/hiver)
+        #     month = int(adj.datetime_str.split("-")[0])
+        #     season = "summer" if 3 <= month <= 9 else "winter"
+        #     facade_samples[facade_key][season].append(adj)
+
+        # # Ajouter les données organisées au tree
+        # for facade_name, seasons in facade_samples.items():
+        #     facade_node = tree.insert(
+        #         "", tk.END, text=facade_key, values=("", "", "", "", "", "")
+        #     )
+
+        #     for season_name, adjustments in seasons.items():
+        #         if not adjustments:
+        #             continue
+
+        #         season_display = (
+        #             "🌞 Période heure d´été"
+        #             if season_name == "summer"
+        #             else "❄️ Période heure d´hiver"
+        #         )
+        #         season_node = tree.insert(
+        #             facade_node,
+        #             tk.END,
+        #             text=season_display,
+        #             values=("", "", "", "", "", ""),
+        #         )
+
+        #         for adj in adjustments:
+        #             # Déterminer si les heures correspondent ou s'il y a un décalage
+        #             weather_time = adj.weather_datetime
+        #             solar_time = adj.solar_datetime or "N/A"
+
+        #             tree.insert(
+        #                 season_node,
+        #                 tk.END,
+        #                 text="",
+        #                 values=(
+        #                     weather_time,
+        #                     solar_time,
+        #                     f"{adj.original_temp:.1f}",
+        #                     f"{adj.adjusted_temp:.1f}",
+        #                     f"{adj.solar_irradiance:.1f}",
+        #                     f"{adj.threshold:.1f}",
+        #                 ),
+        #             )
+
+        # Expand facade nodes by default
 
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
@@ -348,66 +366,12 @@ Paramètres de traitement:
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Note en bas avec statistiques améliorées
-        total_samples = len(self.preview_result.sample_adjustments)
-        facade_count = len(facade_samples)
-        note_text = f"Affichage de {total_samples} échantillons stratifiés sur {facade_count} façade(s) - Total: {self.preview_result.total_adjustments:,} ajustements"
-        note_label = tk.Label(frame, text=note_text, font=("Arial", 10), fg="gray")
-        note_label.pack(pady=5)
-
-    def _create_parameters_tab(self, notebook):
-        """Crée l'onglet des paramètres."""
-        frame = ttk.Frame(notebook)
-        notebook.add(frame, text="Paramètres")
-
-        # Frame principal
-        main_frame = tk.Frame(frame)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-
-        # Titre
-        title_label = tk.Label(
-            main_frame,
-            text="Paramètres de traitement",
-            font=("Arial", 14, "bold"),
-            fg="darkred",
-        )
-        title_label.pack(pady=(0, 20))
-
-        # Paramètres
-        params_text = f"""
-Fichiers d'entrée:
-
-Fichier météo:
-{self.preview_result.parameters['weather_file']}
-
-Fichier solaire:
-{self.preview_result.parameters['solar_file']}
-
-Paramètres de calcul:
-
-Seuil d'irradiance solaire: {self.preview_result.parameters['threshold']} W/m²
-Augmentation de température: {self.preview_result.parameters['delta_t']} K
-
-Données chargées:
-
-Points de données météo: {self.preview_result.parameters['weather_data_points']:,}
-Points de données solaires: {self.preview_result.parameters['solar_data_points']:,}
-Façades à traiter: {len(self.preview_result.facade_combinations)}
-
-Façades à traiter:
-        """.strip()
-
-        for facade_id, building_body in self.preview_result.facade_combinations:
-            params_text += f"\n• {facade_id} - {building_body}"
-
-        params_label = tk.Label(
-            main_frame,
-            text=params_text,
-            justify=tk.LEFT,
-            anchor="nw",
-            font=("Arial", 10),
-        )
-        params_label.pack(fill=tk.BOTH, expand=True)
+        # # Note en bas avec statistiques améliorées
+        # total_samples = len(self.preview_result.sample_adjustments)
+        # facade_count = len(facade_samples)
+        # note_text = f"Affichage de {total_samples} échantillons stratifiés sur {facade_count} façade(s) - Total: {self.preview_result.total_adjustments:,} ajustements"
+        # note_label = tk.Label(frame, text=note_text, font=("Arial", 10), fg="gray")
+        # note_label.pack(pady=5)
 
     def _create_control_buttons(self):
         """Crée les boutons de contrôle."""
@@ -424,18 +388,18 @@ Façades à traiter:
         )
         close_button.pack(side=tk.RIGHT, padx=5)
 
-        # Bouton Générer les fichiers (le plus important)
-        if self.generate_callback:
-            generate_button = tk.Button(
-                button_frame,
-                text="Générer les fichiers",
-                command=self._generate_files,
-                font=("Arial", 10, "bold"),
-                width=20,
-                bg="lightgreen",
-                relief=tk.RAISED,
-            )
-            generate_button.pack(side=tk.RIGHT, padx=5)
+        # Bouton Générer les fichiers (toujours visible)
+        generate_button = tk.Button(
+            button_frame,
+            text="Générer les fichiers",
+            command=self._generate_files,
+            font=("Arial", 10, "bold"),
+            width=20,
+            bg="lightgreen" if self.generate_callback else "lightgray",
+            relief=tk.RAISED,
+            state=tk.NORMAL if self.generate_callback else tk.DISABLED,
+        )
+        generate_button.pack(side=tk.RIGHT, padx=5)
 
         # Bouton Exporter (pour plus tard)
         export_button = tk.Button(
@@ -461,9 +425,10 @@ Façades à traiter:
             return
 
         # Confirmation avant génération
+        total_adjustments = self.summary_data.count_adjustments
         response = messagebox.askyesno(
             "Confirmation",
-            f"Voulez-vous générer les fichiers avec {self.preview_result.total_adjustments} ajustements de température ?",
+            f"Voulez-vous générer les fichiers avec {total_adjustments} ajustements de température ?",
             icon="question",
         )
 
