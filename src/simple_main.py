@@ -606,9 +606,15 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         tree.column("Temp. ajustée", width=100)
         tree.column("Irradiation", width=100)
 
-        # Ajouter les échantillons
+        # Ajouter les échantillons avec colorisation selon été/hiver
         for sample in self.preview_data.sample_adjustments:
-            tree.insert(
+            # Déterminer si c'est l'heure d'été (MESZ) ou l'heure d'hiver (MEZ)
+            is_dst = "MESZ" in sample.solar_datetime_str
+
+            # Appliquer des tags différents selon la saison
+            tag = "summer" if is_dst else "winter"
+
+            item_id = tree.insert(
                 "",
                 tk.END,
                 values=(
@@ -619,7 +625,16 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
                     f"{sample.adjusted_temp:.1f}°C",
                     f"{sample.solar_irradiance:.0f} W/m²",
                 ),
+                tags=(tag,),
             )
+
+        # Configuration des tags pour la coloration
+        tree.tag_configure(
+            "summer", background="#FFFFE0"
+        )  # Jaune pâle pour l'été (MESZ)
+        tree.tag_configure(
+            "winter", background="#E0F0FF"
+        )  # Bleu pâle pour l'hiver (MEZ)
 
         # Scrollbar pour le treeview
         scrollbar_tree = ttk.Scrollbar(
@@ -631,12 +646,35 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Note explicative
+        # Note explicative avec légende
         note_frame = tk.Frame(parent)
         note_frame.pack(fill=tk.X, pady=(10, 0))
 
-        note_text = f"💡 Note: {len(self.preview_data.sample_adjustments)} échantillons affichés sur {self.preview_data.total_adjustments:,} ajustements totaux"
-        tk.Label(note_frame, text=note_text, font=("Arial", 10), fg="gray").pack()
+        # Afficher le nombre total d'exemples
+        note_text = f"💡 Note: {len(self.preview_data.sample_adjustments)} échantillons représentatifs sur {self.preview_data.total_adjustments:,} ajustements totaux"
+        tk.Label(note_frame, text=note_text, font=("Arial", 10), fg="gray").pack(
+            anchor="w", padx=5
+        )
+
+        # Légende des couleurs
+        legend_frame = tk.Frame(note_frame)
+        legend_frame.pack(pady=5, anchor="w")
+
+        # Légende heure d'été
+        summer_frame = tk.Frame(legend_frame, bg="#FFFFE0", width=20, height=20)
+        summer_frame.pack(side=tk.LEFT, padx=5)
+        summer_label = tk.Label(
+            legend_frame, text="Heure d'été (MESZ)", font=("Arial", 9)
+        )
+        summer_label.pack(side=tk.LEFT, padx=5)
+
+        # Légende heure d'hiver
+        winter_frame = tk.Frame(legend_frame, bg="#E0F0FF", width=20, height=20)
+        winter_frame.pack(side=tk.LEFT, padx=15)
+        winter_label = tk.Label(
+            legend_frame, text="Heure d'hiver (MEZ)", font=("Arial", 9)
+        )
+        winter_label.pack(side=tk.LEFT, padx=5)
 
     def _create_wizard_generation_step(self, parent, wizard_window):
         """Crée l'étape 3 du wizard: Génération des fichiers."""

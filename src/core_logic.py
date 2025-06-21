@@ -339,10 +339,18 @@ class SoschuProcessor:
         sample_adjustments = []
         total_adjustments = 0
 
-        # Limiter les échantillons pour la performance
-        max_samples_per_facade = 5
-        samples_collected = {facade: 0 for facade in facades}
+        # Structure pour collecter des exemples par façade et par type d'heure (été/hiver)
+        max_samples_per_type = 3  # Nombre maximal d'exemples par type et par façade
+        samples_by_facade_and_season = {
+            facade: {"winter": [], "summer": []} for facade in facades
+        }
+        all_adjustments = (
+            []
+        )  # Tous les ajustements possibles (pour sélection si besoin)
 
+        logger.info("Collecte des exemples d'ajustements pour prévisualisation...")
+
+        # Premier passage: collecter tous les ajustements possibles
         for weather_point in weather_data:
             # Convertir en UTC pour la comparaison
             utc_dt = weather_point.to_datetime_utc()
@@ -356,38 +364,78 @@ class SoschuProcessor:
                         adjustments_by_facade[facade] += 1
                         total_adjustments += 1
 
-                        # Collecter des échantillons pour la prévisualisation
-                        if samples_collected[facade] < max_samples_per_facade:
-                            # Formats date/heure dans leurs formats originaux respectifs
-                            weather_datetime_str = (
-                                weather_point.get_original_datetime_str()
-                            )  # Format 1-24 MEZ
-                            solar_datetime_str = (
-                                solar_point.get_original_datetime_str()
-                            )  # Format 0-23 MEZ/MESZ
+                        # Formats date/heure dans leurs formats originaux respectifs
+                        weather_datetime_str = (
+                            weather_point.get_original_datetime_str()
+                        )  # Format 1-24 MEZ
+                        solar_datetime_str = (
+                            solar_point.get_original_datetime_str()
+                        )  # Format 0-23 MEZ/MESZ
 
-                            # Format commun pour affichage (on garde le format météo pour la cohérence)
-                            datetime_str = weather_datetime_str
+                        # Format commun pour affichage (on garde le format météo pour la cohérence)
+                        datetime_str = weather_datetime_str
 
-                            sample_adjustments.append(
-                                AdjustmentSample(
-                                    facade_id=facade,
-                                    datetime_str=datetime_str,
-                                    weather_datetime_str=weather_datetime_str,
-                                    solar_datetime_str=solar_datetime_str,
-                                    original_temp=weather_point.temperature,
-                                    adjusted_temp=weather_point.temperature + delta_t,
-                                    solar_irradiance=irradiance,
-                                    weather_datetime_utc=utc_dt,
-                                    solar_datetime_utc=solar_point.to_datetime_utc(),
-                                )
+                        # Créer l'échantillon
+                        sample = AdjustmentSample(
+                            facade_id=facade,
+                            datetime_str=datetime_str,
+                            weather_datetime_str=weather_datetime_str,
+                            solar_datetime_str=solar_datetime_str,
+                            original_temp=weather_point.temperature,
+                            adjusted_temp=weather_point.temperature + delta_t,
+                            solar_irradiance=irradiance,
+                            weather_datetime_utc=utc_dt,
+                            solar_datetime_utc=solar_point.to_datetime_utc(),
+                        )
+
+                        # Déterminer si c'est l'heure d'été ou d'hiver
+                        season_type = "summer" if solar_point.is_dst else "winter"
+
+                        # Ajouter aux collections appropriées
+                        all_adjustments.append(sample)
+
+                        # Si on n'a pas encore assez d'exemples pour ce type, l'ajouter
+                        if (
+                            len(samples_by_facade_and_season[facade][season_type])
+                            < max_samples_per_type
+                        ):
+                            samples_by_facade_and_season[facade][season_type].append(
+                                sample
                             )
-                            samples_collected[facade] += 1
-
-                            # Log pour debugging
                             logger.debug(
-                                f"Match trouvé: {weather_datetime_str} (DAT) == {solar_datetime_str} (HTML)"
+                                f"Exemple ajouté: {facade} ({season_type}): {weather_datetime_str} (DAT) == {solar_datetime_str} (HTML)"
                             )
+
+        # Créer la liste finale des échantillons pour l'affichage
+        sample_adjustments = []
+
+        # D'abord, ajouter au moins un exemple de chaque façade et type (été/hiver) si disponible
+        for facade in facades:
+            # Ajouter les exemples d'hiver
+            if samples_by_facade_and_season[facade]["winter"]:
+                sample_adjustments.extend(
+                    samples_by_facade_and_season[facade]["winter"]
+                )
+                logger.debug(
+                    f"Ajouté {len(samples_by_facade_and_season[facade]['winter'])} exemples d'hiver pour {facade}"
+                )
+            else:
+                logger.info(f"Pas d'exemple d'hiver disponible pour la façade {facade}")
+
+            # Ajouter les exemples d'été
+            if samples_by_facade_and_season[facade]["summer"]:
+                sample_adjustments.extend(
+                    samples_by_facade_and_season[facade]["summer"]
+                )
+                logger.debug(
+                    f"Ajouté {len(samples_by_facade_and_season[facade]['summer'])} exemples d'été pour {facade}"
+                )
+            else:
+                logger.info(f"Pas d'exemple d'été disponible pour la façade {facade}")
+
+        logger.info(
+            f"Collecté {len(sample_adjustments)} exemples représentatifs sur {len(all_adjustments)} ajustements possibles"
+        )
 
         return PreviewData(
             facades=facades,
