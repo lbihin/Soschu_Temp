@@ -22,9 +22,9 @@ def main():
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     if platform.system() == "Darwin":
-        print("🛠 Compilation directe d'un .exe Windows depuis macOS...")
-        print(f"🛠 Compilation de l'exécutable à partir de: {entrypoint}")
-        print(f"🛠 Utilisation de l'icône: {icon_path}")
+        print("[INFO] Compilation directe d'un .exe Windows depuis macOS...")
+        print(f"[INFO] Compilation de l'exécutable à partir de: {entrypoint}")
+        print(f"[INFO] Utilisation de l'icône: {icon_path}")
 
         # Méthode directe de cross-compilation
         # Créer un fichier .spec pour cibler Windows
@@ -70,7 +70,7 @@ exe = EXE(pyz,
         with open(spec_file, "w") as f:
             f.write(spec_content)
 
-        print(f"✅ Fichier spec créé: {spec_file}")
+        print(f"[SUCCES] Fichier spec créé: {spec_file}")
 
         # Utiliser le fichier spec
         cmd = [
@@ -81,7 +81,7 @@ exe = EXE(pyz,
 
         try:
             print(
-                "🛠 Exécution de PyInstaller (compilation croisée macOS -> Windows)..."
+                "[INFO] Exécution de PyInstaller (compilation croisée macOS -> Windows)..."
             )
             subprocess.run(cmd, check=True)
 
@@ -92,7 +92,7 @@ exe = EXE(pyz,
                 if final_path.exists():
                     final_path.unlink()
                 built_exe.rename(final_path)
-                print(f"✅ .exe généré avec succès : {final_path}")
+                print(f"[SUCCES] .exe généré avec succès : {final_path}")
                 return
 
             # Deuxième tentative - chercher dans le répertoire dist sans extension .exe
@@ -102,18 +102,18 @@ exe = EXE(pyz,
                 if final_path.exists():
                     final_path.unlink()
                 built_file.rename(final_path)
-                print(f"✅ .exe généré avec succès : {final_path}")
+                print(f"[SUCCES] .exe généré avec succès : {final_path}")
             else:
-                print("❌ Le fichier executable n'a pas été trouvé après compilation.")
-                print("📁 Contenu du répertoire dist:")
+                print("[ERREUR] Le fichier executable n'a pas été trouvé après compilation.")
+                print("[INFO] Contenu du répertoire dist:")
                 for file in Path("dist").glob("*"):
                     print(f"  - {file}")
         except subprocess.CalledProcessError as e:
-            print(f"❌ Erreur lors de la compilation avec PyInstaller : {e}")
+            print(f"[ERREUR] Erreur lors de la compilation avec PyInstaller : {e}")
             sys.exit(1)
     else:
         # Compilation native Windows
-        print("🛠 Compilation Windows native avec PyInstaller...")
+        print("[INFO] Compilation Windows native avec PyInstaller...")
 
         cmd = [
             "pyinstaller",
@@ -137,11 +137,11 @@ exe = EXE(pyz,
                 if final_path.exists():
                     final_path.unlink()
                 built_exe.rename(final_path)
-                print(f"✅ .exe généré : {final_path}")
+                print(f"[SUCCES] .exe généré : {final_path}")
             else:
-                print("❌ Aucun .exe trouvé après build.")
+                print("[ERREUR] Aucun .exe trouvé après build.")
         except subprocess.CalledProcessError as e:
-            print("❌ Erreur PyInstaller :", e)
+            print("[ERREUR] Erreur PyInstaller :", e)
             sys.exit(1)
 
 
