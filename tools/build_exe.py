@@ -37,6 +37,8 @@ def build_native_macos(
         exe_name,
         "--add-data",
         f"{project_root}/src:src",
+        "--hidden-import=pytz",
+        "--hidden-import=lxml",
         str(entrypoint),
     ]
 
@@ -103,6 +105,8 @@ def build_native_windows(
         exe_name,
         "--add-data",
         add_data_param,
+        "--hidden-import=pytz",
+        "--hidden-import=lxml",
         str(entrypoint),
     ]
 
@@ -158,13 +162,13 @@ def build_windows_on_macos(
 
 block_cipher = None
 
-a = Analysis(['{entrypoint.replace(os.sep, "/")}'],
+a = Analysis(['{entrypoint.as_posix()}'],
              pathex=['{project_root.as_posix()}'],
              binaries=[],
              datas=[
                 ('{project_root.as_posix()}/src', 'src')
              ],
-             hiddenimports=[],
+             hiddenimports=['pytz', 'lxml'],
              hookspath=[],
              runtime_hooks=[],
              excludes=[],
@@ -188,7 +192,7 @@ exe = EXE(pyz,
           upx_exclude=[],
           runtime_tmpdir=None,
           console=False,
-          icon='{icon_path.replace(os.sep, "/")}')
+          icon='{icon_path.as_posix()}')
 """
 
     # Écriture du fichier .spec

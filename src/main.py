@@ -12,12 +12,29 @@ Architecture simplifiée:
 """
 
 import logging
+import os
 import platform
 import subprocess
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import List, Optional
+
+# Ajuster le path pour les imports en fonction de l'environnement
+if getattr(sys, "frozen", False):
+    # Si l'application est "frozen" (packagée par PyInstaller)
+    # On doit ajouter le dossier 'src' au path
+    bundle_dir = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
+    if os.path.isdir(os.path.join(bundle_dir, "src")):
+        sys.path.insert(0, os.path.join(bundle_dir, "src"))
+    # Aussi ajouter le répertoire courant qui pourrait contenir src
+    sys.path.insert(0, bundle_dir)
+else:
+    # En développement, ajouter le répertoire parent au path si nécessaire
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if os.path.basename(current_dir) == "src":
+        sys.path.insert(0, os.path.dirname(current_dir))
 
 from core import PreviewData, SoschuProcessor
 
@@ -1101,7 +1118,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         file_word = "fichier" if nb_files == 1 else "fichiers"
         if hasattr(self, "generation_status"):
             self.generation_status.config(
-                text=f"✅ Génération terminée avec succès! ({nb_files} {file_word})",
+                text=f"✓ Génération terminée avec succès! ({nb_files} {file_word})",
                 fg="green",
             )
 
