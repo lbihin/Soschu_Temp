@@ -3,7 +3,7 @@ name: CI/CD Pipeline
 on:
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # Permet de lancer le workflow manuellement
+  workflow_dispatch:
 
 jobs:
   test-and-build:
@@ -12,7 +12,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
-        # os: [macos-latest]
         python-version: ['3.12']
 
     steps:

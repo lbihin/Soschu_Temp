@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Soschu Temperature Tool",
+            "name": "Debug app JustMyCode",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/src/main.py",
@@ -18,7 +18,7 @@
             "python": "${workspaceFolder}/.venv/bin/python"
         },
         {
-            "name": "Debug Soschu Tool (No JustMyCode)",
+            "name": "Debug app (Not JustMyCode)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/src/main.py",
@@ -33,21 +33,5 @@
             "showReturnValue": true,
             "python": "${workspaceFolder}/.venv/bin/python"
         },
-        {
-            "name": "Debug Soschu Tool (Step Into Entry)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/main.py",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}/src"
-            },
-            "args": [],
-            "justMyCode": true,
-            "stopOnEntry": true,
-            "showReturnValue": true,
-            "python": "${workspaceFolder}/.venv/bin/python"
-        }
     ]
 }
