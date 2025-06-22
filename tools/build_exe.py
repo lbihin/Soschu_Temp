@@ -18,11 +18,62 @@ def main():
     entrypoint = os.path.join(project_root, "src", "main.py")
     exe_name = "soschu_temp"
     icon_path = os.path.join(project_root, "tools", "assets", "icon.ico")
-    dist_dir = Path(os.path.join(project_root, "dist", "windows"))
-    dist_dir.mkdir(parents=True, exist_ok=True)
-
-    if platform.system() == "Darwin":
-        print("[INFO] Compilation directe d'un .exe Windows depuis macOS...")
+    
+    # Sur GitHub Actions, les artefacts sont recherchés directement dans dist/
+    # Sinon, pour un usage local, nous utilisons dist/windows ou dist/macos
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        dist_dir = Path(os.path.join(project_root, "dist"))
+    else:
+        # Pour usage local
+        is_windows = platform.system() == "Windows"
+        platform_folder = "windows" if is_windows else "macos"
+        dist_dir = Path(os.path.join(project_root, "dist", platform_folder))
+        dist_dir.mkdir(parents=True, exist_ok=True)
+    
+    is_windows = platform.system() == "Windows"
+    is_macos = platform.system() == "Darwin"
+    
+    # Build natif pour l'OS actuel
+    if is_macos:
+        print("[INFO] Compilation native pour macOS...")
+        
+        # Pour macOS, on génère un exécutable macOS
+        cmd_macos = [
+            "pyinstaller",
+            "--onefile",
+            "--windowed",
+            "--name",
+            exe_name,
+            "--add-data",
+            f"{project_root}/src:src",
+            str(entrypoint),
+        ]
+        
+        try:
+            subprocess.run(cmd_macos, check=True)
+            
+            # Vérifier si l'exécutable a été généré
+            built_macos = Path("dist") / exe_name
+            if built_macos.exists():
+                # Pour GitHub Actions, on laisse l'exécutable en place
+                if os.environ.get("GITHUB_ACTIONS") != "true":
+                    # Pour usage local, on le déplace dans le sous-dossier macos
+                    final_path = dist_dir / exe_name
+                    if final_path.exists():
+                        final_path.unlink()
+                    built_macos.rename(final_path)
+                    print(f"[SUCCES] Exécutable macOS généré : {final_path}")
+                else:
+                    print(f"[SUCCES] Exécutable macOS généré : {built_macos}")
+                return
+            else:
+                print("[ERREUR] Aucun exécutable macOS trouvé après build.")
+                print("Contenu du répertoire dist:")
+                for file in Path("dist").glob("*"):
+                    print(f"  - {file}")
+        except subprocess.CalledProcessError as e:
+            print(f"[ERREUR] Erreur lors de la compilation macOS : {e}")
+            sys.exit(1)
         print(f"[INFO] Compilation de l'exécutable à partir de: {entrypoint}")
         print(f"[INFO] Utilisation de l'icône: {icon_path}")
 
@@ -88,23 +139,38 @@ exe = EXE(pyz,
             # Déplacer l'exécutable vers le répertoire final
             built_exe = Path("dist") / f"{exe_name}.exe"
             if built_exe.exists():
-                final_path = dist_dir / f"{exe_name}.exe"
-                if final_path.exists():
-                    final_path.unlink()
-                built_exe.rename(final_path)
-                print(f"[SUCCES] .exe généré avec succès : {final_path}")
+                # Pour GitHub Actions, on laisse l'exécutable en place
+                if os.environ.get("GITHUB_ACTIONS") != "true":
+                    # Pour usage local, on le déplace dans le sous-dossier
+                    final_path = dist_dir / f"{exe_name}.exe"
+                    if final_path.exists():
+                        final_path.unlink()
+                    built_exe.rename(final_path)
+                    print(f"[SUCCES] .exe généré avec succès : {final_path}")
+                else:
+                    print(f"[SUCCES] .exe généré avec succès : {built_exe}")
                 return
 
             # Deuxième tentative - chercher dans le répertoire dist sans extension .exe
             built_file = Path("dist") / exe_name
             if built_file.exists():
-                final_path = dist_dir / f"{exe_name}.exe"
-                if final_path.exists():
-                    final_path.unlink()
-                built_file.rename(final_path)
-                print(f"[SUCCES] .exe généré avec succès : {final_path}")
+                # Pour GitHub Actions, on laisse l'exécutable en place
+                if os.environ.get("GITHUB_ACTIONS") != "true":
+                    # Pour usage local, on le déplace dans le sous-dossier
+                    final_path = dist_dir / f"{exe_name}.exe"
+                    if final_path.exists():
+                        final_path.unlink()
+                    built_file.rename(final_path)
+                    print(f"[SUCCES] .exe généré avec succès : {final_path}")
+                else:
+                    # Renommer pour avoir l'extension .exe
+                    final_path = Path("dist") / f"{exe_name}.exe"
+                    built_file.rename(final_path)
+                    print(f"[SUCCES] .exe généré avec succès : {final_path}")
             else:
-                print("[ERREUR] Le fichier executable n'a pas été trouvé après compilation.")
+                print(
+                    "[ERREUR] Le fichier executable n'a pas été trouvé après compilation."
+                )
                 print("[INFO] Contenu du répertoire dist:")
                 for file in Path("dist").glob("*"):
                     print(f"  - {file}")
@@ -133,11 +199,16 @@ exe = EXE(pyz,
 
             built_exe = Path("dist") / f"{exe_name}.exe"
             if built_exe.exists():
-                final_path = dist_dir / f"{exe_name}.exe"
-                if final_path.exists():
-                    final_path.unlink()
-                built_exe.rename(final_path)
-                print(f"[SUCCES] .exe généré : {final_path}")
+                # Pour GitHub Actions, on laisse l'exécutable en place
+                if os.environ.get("GITHUB_ACTIONS") != "true":
+                    # Pour usage local, on le déplace dans le sous-dossier windows
+                    final_path = dist_dir / f"{exe_name}.exe"
+                    if final_path.exists():
+                        final_path.unlink()
+                    built_exe.rename(final_path)
+                    print(f"[SUCCES] .exe généré : {final_path}")
+                else:
+                    print(f"[SUCCES] .exe généré : {built_exe}")
             else:
                 print("[ERREUR] Aucun .exe trouvé après build.")
         except subprocess.CalledProcessError as e:
