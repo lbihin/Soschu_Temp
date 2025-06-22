@@ -9,7 +9,7 @@ package-mode = true
 packages = [{ include = "src" }, { include = "tools" }]
 
 [tool.poetry.dependencies]
-python =">=3.9,<3.14"
+python = ">=3.9,<3.14"
 lxml = "^5.3.0"
 pytz = "^2024.1"
 
@@ -28,3 +28,5 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 build-exe = "tools.build_exe:main"
+build-native = "tools.build_native:main"
+build-local = "tools.build_local:main"

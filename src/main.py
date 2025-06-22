@@ -1168,7 +1168,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
 
                 tk.Label(
                     file_frame,
-                    text="✅",
+                    text="✓",
                     font=("Arial", 11),
                     fg="green",
                 ).pack(side=tk.LEFT, padx=(0, 5))
