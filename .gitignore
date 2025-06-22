@@ -2,6 +2,7 @@
 .DS_Store
 test_output/
 output/
+*/data/TRY*body.dat
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

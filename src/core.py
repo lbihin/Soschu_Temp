@@ -1,570 +1,300 @@
 """
-Core functionality for the Soschu Temperature tool.
+Logique métier simplifiée pour le Soschu Temperature Tool.
 
-This module provides the main processing logic to adjust weather data based on
-solar irradiance thresholds for different facade orientations of building bodies.
+Ce module contient la logique principale pour:
+1. Parsing des fichiers météo et solaire
+2. Calcul des ajustements de température
+3. Génération des données de prévisualisation
+4. Création des fichiers de sortie
 """
 
 import logging
-import re
-import uuid
-from copy import deepcopy
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from parser import SolarParser, WeatherParser
+from pathlib import Path
+from typing import List
 
-from pydantic import BaseModel, Field, model_validator
+from preview import AdjustmentSample, PreviewData
 
-from config import Config
-from output_generator import OutputGenerator, create_try_generator
-from solar import SolarDataPoint, SolarFileMetadata, load_solar_irridance_data
-from weather import WeatherDataPoint, WeatherFileMetadata, load_weather_data
-
-# Setup logging
 logger = logging.getLogger(__name__)
 
 
-class FacadeProcessingResult(BaseModel):
-    """Résultat du traitement pour une façade spécifique."""
-
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    facade_id: str
-    building_body: str
-    wheater_data: List[WeatherDataPoint]
-    solar_data: List[SolarDataPoint]
-    adjustments_count: int = Field(ge=0, description="Number of adjustments made")
-
-    class Config:
-        arbitrary_types_allowed = True
-
-    def count_weather_data_points(self) -> int:
-        """
-        Count the total number of weather data points processed for this facade.
-
-        Returns:
-            Total number of weather data points
-        """
-        return len(self.wheater_data)
-
-    def count_solar_data_points(self) -> int:
-        """
-        Count the total number of solar data points processed for this facade.
-
-        Returns:
-            Total number of solar data points
-        """
-        return len(self.solar_data)
-
-    def get_full_name(self) -> str:
-        """Get a full descriptive name for this facade processing result."""
-        return f"{self.facade_id} {self.building_body}"
-    
-    def get_percentage_adjusted(self) -> float:
-        """
-        Calculate the percentage of weather data points that were adjusted.
-
-        Returns:
-            Percentage of adjusted data points
-        """
-        if not self.wheater_data:
-            return 0.0
-        return (self.adjustments_count / self.count_solar_data_points()) * 100.0    
-
-
-class ProcessingResult(BaseModel):
-    """Résultat du traitement contenant toutes les données nécessaires pour la preview et la génération."""
-
-    # Métadonnées et paramètres
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    threshold: float = Field(
-        ge=0,
-        description="Solar irradiance threshold in W/m² above which temperature is adjusted",
-    )
-    delta_t: float = Field(
-        ge=0,
-        description="Temperature increase in °C to apply when threshold is exceeded",
-    )
-    weather_file: str = Field(description="Path to the weather data file")
-    solar_file: str = Field(description="Path to the solar irradiance HTML file")
-    data: Dict[str, FacadeProcessingResult] = Field(
-        description="Processed data for each facade, keyed by unique ID"
-    )
-
-    class Config:
-        arbitrary_types_allowed = True
-
-    def count_facades(self) -> int:
-        """
-        Count the number of facades processed in this result.
-
-        Returns:
-            Total number of unique facades
-        """
-        return len(self.data)
-
-    def count_adjustments(self) -> int:
-        """
-        Count the total number of temperature adjustments made across all facades.
-
-        Returns:
-            Total number of adjustments
-        """
-        total_adjustments = 0
-        for facade_result in self.data.values():
-            total_adjustments += facade_result.adjustments_count
-        return total_adjustments
-
-    def count_overall_weather_data_points(self) -> int:
-        """
-        Count the total number of weather data points across all facades.
-
-        Returns:
-            Total number of weather data points
-        """
-        total_count = 0
-        for facade_result in self.data.values():
-            total_count += facade_result.count_weather_data_points()
-        return total_count
-
-    def count_solar_data_points(self) -> int:
-        """
-        Count the total number of solar data points across all facades.
-
-        Returns:
-            Total number of solar data points
-        """
-        total_count = 0
-        for facade_result in self.data.values():
-            total_count += facade_result.count_solar_data_points()
-        return total_count
-
-
-class PreviewAdjustment(BaseModel):
-    """Représente un ajustement de température pour la prévisualisation."""
-
-    datetime_str: str = Field(description="Formatted datetime string")
-    facade_id: str = Field(description="Facade identifier (e.g., f1, f2)")
-    building_body: str = Field(description="Building body identifier")
-    original_temp: float = Field(description="Original temperature in °C")
-    adjusted_temp: float = Field(description="Adjusted temperature in °C")
-    solar_irradiance: float = Field(ge=0, description="Solar irradiance in W/m²")
-    threshold: float = Field(ge=0, description="Threshold value in W/m²")
-    weather_datetime: Optional[str] = Field(None, description="Weather data timestamp")
-    solar_datetime: Optional[str] = Field(None, description="Solar data timestamp")
-
-    @model_validator(mode="after")
-    def set_default_datetimes(self):
-        """Set weather_datetime and solar_datetime to datetime_str if not provided."""
-        if self.weather_datetime is None:
-            self.weather_datetime = self.datetime_str
-        if self.solar_datetime is None:
-            self.solar_datetime = self.datetime_str
-        return self
-
-    @model_validator(mode="after")
-    def validate_temperature_adjustment(self):
-        """Validate that adjusted temperature is greater than original when solar irradiance exceeds threshold."""
-        if (
-            self.solar_irradiance > self.threshold
-            and self.adjusted_temp <= self.original_temp
-        ):
-            raise ValueError(
-                f"Adjusted temperature {self.adjusted_temp}°C should be greater than original {self.original_temp}°C when solar irradiance {self.solar_irradiance} W/m² exceeds threshold {self.threshold} W/m²"
-            )
-        return self
-
-
-class PreviewResult(BaseModel):
-    """Résultat de la prévisualisation pour l'affichage GUI."""
-
-    # Inherit all data from ProcessingResult
-    processing_result: ProcessingResult
-
-    # Additional preview-specific data
-    sample_adjustments: List[PreviewAdjustment] = Field(
-        description="Sample adjustments for preview"
-    )
-    max_sample_adjustments: int = Field(
-        ge=0, description="Maximum number of sample adjustments"
-    )
-
-    @model_validator(mode="after")
-    def validate_sample_adjustments_count(self):
-        """Validate that sample adjustments don't exceed max limit."""
-        if len(self.sample_adjustments) > self.max_sample_adjustments:
-            raise ValueError(
-                f"Number of sample adjustments {len(self.sample_adjustments)} exceeds maximum {self.max_sample_adjustments}"
-            )
-        return self
-
-    class Config:
-        arbitrary_types_allowed = True
-
-
-class FacadeProcessor:
-    """Processes weather data adjustments based on facade solar irradiance."""
-
-    def __init__(self, threshold: float, delta_t: float):
-        """
-        Initialize the facade processor.
-
-        Args:
-            threshold: Solar irradiance threshold in W/m² above which temperature is adjusted
-            delta_t: Temperature increase in °C to apply when threshold is exceeded
-        """
-        self.threshold = threshold
-        self.delta_t = delta_t
-        self.logger = logging.getLogger(__name__)
-        self.weather_data = None
-        self.solar_data = None
-
-    def process_facade_data(
-        self,
-        weather_data: List[WeatherDataPoint],
-        solar_metadata: SolarFileMetadata,
-        solar_data: List[SolarDataPoint],
-        facade_id: str = "",
-        building_body: str = "",
-    ) -> Optional[FacadeProcessingResult]:
-        """
-        Process weather data for a specific facade of a building body.
-
-        Args:
-            weather_data: Weather data points to modify
-            solar_metadata: Solar file metadata
-            solar_data: Solar irradiance data points
-            facade_id: Facade identifier (e.g., "f1", "f2", etc.)
-            building_body: Building body identifier (e.g., "Building body", "Building body 2")
-
-        Returns:
-            FacadeProcessingResult containing processed data
-        """
-        self.logger.info(f"Processing facade {facade_id} of {building_body}")
-
-        # Find the specific facade column in solar data
-        facade_column = self._find_facade_column(
-            solar_metadata, facade_id, building_body
-        )
-        if not facade_column:
-            self.logger.warning(
-                f"No solar data found for facade {facade_id} of {building_body}"
-            )
-            return
-
-        self.logger.info(f"Found solar column: {facade_column}")
-
-        # Create a lookup table for solar irradiance by datetime
-        solar_lookup = self._create_solar_lookup(solar_data, facade_column)
-
-        # Create deep copy of weather data for this facade
-        facade_weather_data = deepcopy(weather_data)
-
-        # Process each weather data point
-        count_adjustments = 0
-        for weather_point in facade_weather_data:
-            # Find corresponding solar irradiance value
-            solar_irradiance = self._get_solar_irradiance_for_datetime(
-                solar_lookup, weather_point
-            )
-
-            # Apply temperature adjustment if threshold is exceeded
-            if solar_irradiance is not None and solar_irradiance > self.threshold:
-                # Update the adjusted temperature
-                weather_point.adjusted_temperature += self.delta_t
-                count_adjustments += 1
-                self.logger.debug(
-                    f"Adjusted temperature for {weather_point.month:02d}-{weather_point.day:02d} "
-                    f"{weather_point.hour:02d}:00 - Solar: {solar_irradiance:.1f} W/m² > {self.threshold} W/m², "
-                    f"Temp: {weather_point.temperature:.1f}°C → {weather_point.adjusted_temperature:.1f}°C"
-                )
-
-        self.logger.info(
-            f"Made {count_adjustments} temperature adjustments out of {len(weather_data)} data points"
-        )
-
-        # Create and return the facade processing result
-        return FacadeProcessingResult(
-            facade_id=facade_id,
-            building_body=building_body,
-            wheater_data=facade_weather_data,
-            solar_data=solar_data,
-            adjustments_count=count_adjustments,
-        )
-
-    def _find_facade_column(
-        self, solar_metadata: SolarFileMetadata, facade_id: str, building_body: str
-    ) -> Optional[str]:
-        """
-        Find the solar data column corresponding to the specific facade and building body.
-
-        Args:
-            solar_metadata: Solar file metadata containing facade columns
-            facade_id: Facade identifier (e.g., "f1", "f2")
-            building_body: Building body identifier
-
-        Returns:
-            Column name if found, None otherwise
-        """
-        for column in solar_metadata.facade_columns:
-            # Check if column matches both facade and building body
-            if facade_id in column and building_body in column:
-                return column
-
-        return None
-
-    def _create_solar_lookup(
-        self, solar_data: List[SolarDataPoint], facade_column: str
-    ) -> Dict[datetime, float]:
-        """
-        Create a lookup table for solar irradiance values by datetime.
-
-        Uses naive datetime objects to enable direct comparison with weather data.
-
-        Args:
-            solar_data: List of solar data points
-            facade_column: Name of the facade column to extract values from
-
-        Returns:
-            Dictionary mapping naive datetime to irradiance value
-        """
-        lookup = {}
-
-        for solar_point in solar_data:
-            if facade_column in solar_point.irradiance_values:
-                # Use naive datetime for comparison (solar timestamps are already naive)
-                dt_key = solar_point.timestamp
-                irradiance = solar_point.irradiance_values[facade_column]
-                lookup[dt_key] = irradiance
-
-        self.logger.debug(
-            f"Created solar lookup with {len(lookup)} entries for column {facade_column}"
-        )
-        return lookup
-
-    def _get_solar_irradiance_for_datetime(
-        self,
-        solar_lookup: Dict[datetime, float],
-        weather_point: WeatherDataPoint,
-    ) -> Optional[float]:
-        """
-        Get solar irradiance value for a specific weather data point.
-
-        This method searches for a matching timestamp in the solar lookup dictionary
-        and returns the corresponding irradiance value when found.
-
-            solar_lookup: Dictionary mapping datetime objects to solar irradiance values
-            weather_point: Weather data point containing the timestamp to look up
-
-            float: Solar irradiance value in W/m² if a matching timestamp is found
-            None: If no matching timestamp exists in the lookup table
-        """
-        for lookup_solar_dt, solar_irradiance in solar_lookup.items():
-            # Compare naive timestamps directly
-            if weather_point.timestamp == lookup_solar_dt:
-                return solar_irradiance
-
-
-class CoreProcessor:
-    """Main processor for weather data adjustments. Focuses only on data processing."""
+class SoschuProcessor:
+    """Processeur principal pour les ajustements de température."""
 
     def __init__(self):
-        """Initialize the core processor."""
-        self.logger = logging.getLogger(__name__)
+        self.weather_parser = WeatherParser()
+        self.solar_parser = SolarParser()
 
-    def process_all_facades(
-        self,
-        weather_file_path: str,
-        solar_file_path: str,
-        threshold: float,
-        delta_t: float,
-    ) -> ProcessingResult:
-        """
-        Process all facades and return complete processing result.
-        This method only handles data processing, not file generation.
+    def preview_adjustments(
+        self, weather_file: str, solar_file: str, threshold: float, delta_t: float
+    ) -> PreviewData:
+        """Génère la prévisualisation des ajustements."""
 
-        Args:
-            weather_file_path: Path to the weather data file
-            solar_file_path: Path to the solar irradiance HTML file
-            threshold: Solar irradiance threshold in W/m²
-            delta_t: Temperature increase in °C
+        # Parser les fichiers
+        weather_header, weather_data = self.weather_parser.parse(weather_file)
+        solar_data = self.solar_parser.parse(solar_file)
 
-        Returns:
-            ProcessingResult containing all processed data and statistics
-        """
-        self.logger.info("Starting facade processing...")
+        # Récupérer l'année depuis les données solaires (si disponible)
+        year_from_solar = 2045  # Valeur par défaut
+        if solar_data and hasattr(solar_data[0], "year"):
+            year_from_solar = solar_data[0].year
+            logger.info(f"Année extraite du fichier solar: {year_from_solar}")
 
-        # Load solar data first to extract year for configuration
-        solar_metadata, solar_data = load_solar_irridance_data(solar_file_path)
-        self.logger.info(f"Loaded {len(solar_data)} solar data points")
+            # Appliquer l'année aux données météo
+            for weather_point in weather_data:
+                weather_point.year = year_from_solar
 
-        # Set configuration year from solar data
+        # Créer un index des données solaires pour un accès rapide (basé sur UTC)
+        solar_index = {}
+        for solar_point in solar_data:
+            # Convertir en UTC pour la comparaison
+            utc_dt = solar_point.to_datetime_utc()
+            key = (utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour, utc_dt.minute)
+            solar_index[key] = solar_point
+
+        # Calculer les ajustements
+        facades = []
         if solar_data:
-            config = Config()
-            config.year = solar_data[0].timestamp.year
+            facades = list(solar_data[0].irradiance_by_facade.keys())
 
-        # Load weather data
-        weather_metadata, weather_data = load_weather_data(weather_file_path)
-        self.logger.info(f"Loaded {len(weather_data)} weather data points")
+        adjustments_by_facade = {facade: 0 for facade in facades}
+        sample_adjustments = []
+        total_adjustments = 0
 
-        # Extract facade combinations
-        facade_combinations = self._extract_facade_combinations(solar_metadata)
-        self.logger.info(
-            f"Found {len(facade_combinations)} facade combinations: {facade_combinations}"
-        )
-
-        # Process each facade and collect results
-        processed_data = {}
-        facade_processor = FacadeProcessor(threshold=threshold, delta_t=delta_t)
-
-        for facade_id, building_body in facade_combinations:
-            self.logger.info(f"Processing {facade_id} of {building_body}")
-
-            # Process facade data
-            processing_result = facade_processor.process_facade_data(
-                weather_data=weather_data,
-                solar_metadata=solar_metadata,
-                solar_data=solar_data,
-                facade_id=facade_id,
-                building_body=building_body,
-            )
-
-            # Store results
-            processed_data[processing_result.id] = processing_result
-
-        # Create parameters dictionary
-        parameters = {
-            "threshold": threshold,
-            "delta_t": delta_t,
-            "weather_file": weather_file_path,
-            "solar_file": solar_file_path,
-            "data": processed_data,
+        # Structure pour collecter des exemples par façade et par type d'heure (été/hiver)
+        max_samples_per_type = 3  # Nombre maximal d'exemples par type et par façade
+        samples_by_facade_and_season = {
+            facade: {"winter": [], "summer": []} for facade in facades
+        }
+        # Pour stocker tous les ajustements possibles
+        all_adjustments_by_facade_season = {
+            facade: {"winter": [], "summer": []} for facade in facades
         }
 
-        # Create and return processing result
-        return ProcessingResult(**parameters)
+        # Pour suivre les jours déjà utilisés pour les exemples
+        days_used_by_facade_season = {
+            facade: {"winter": set(), "summer": set()} for facade in facades
+        }
 
-    def _extract_facade_combinations(
-        self, solar_metadata: SolarFileMetadata
-    ) -> List[Tuple[str, str]]:
-        """
-        Extract unique facade and building body combinations from solar metadata.
+        logger.info("Collecte des exemples d'ajustements pour prévisualisation...")
 
-        Args:
-            solar_metadata: Solar file metadata containing facade columns
+        # Premier passage: collecter tous les ajustements possibles
+        for weather_point in weather_data:
+            # Convertir en UTC pour la comparaison
+            utc_dt = weather_point.to_datetime_utc()
+            key = (utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour, utc_dt.minute)
 
-        Returns:
-            List of (facade_id, building_body) tuples
-        """
-        combinations = set()
+            if key in solar_index:
+                solar_point = solar_index[key]
 
-        for column in solar_metadata.facade_columns:
-            # Parse facade ID (e.g., "f1", "f2", "f3", "f4")
-            facade_match = re.search(r"(f\d+)", column)
-            if not facade_match:
-                continue
-            facade_id = facade_match.group(1)
+                for facade, irradiance in solar_point.irradiance_by_facade.items():
+                    if irradiance > threshold:
+                        adjustments_by_facade[facade] += 1
+                        total_adjustments += 1
 
-            # Parse building body (e.g., "Building body", "Building body 2")
-            building_match = re.search(r"(Building body(?:\s+\d+)?)", column)
-            if not building_match:
-                continue
-            building_body = building_match.group(1)
+                        # Formats date/heure dans leurs formats originaux respectifs
+                        weather_datetime_str = (
+                            weather_point.get_original_datetime_str()
+                        )  # Format 1-24 MEZ
+                        solar_datetime_str = (
+                            solar_point.get_original_datetime_str()
+                        )  # Format 0-23 MEZ/MESZ
 
-            combinations.add((facade_id, building_body))
+                        # Format commun pour affichage
+                        datetime_str = weather_datetime_str
 
-        return sorted(list(combinations))
+                        # Créer l'échantillon
+                        sample = AdjustmentSample(
+                            facade_id=facade,
+                            datetime_str=datetime_str,
+                            weather_datetime_str=weather_datetime_str,
+                            solar_datetime_str=solar_datetime_str,
+                            original_temp=weather_point.temperature,
+                            adjusted_temp=weather_point.temperature + delta_t,
+                            solar_irradiance=irradiance,
+                            weather_datetime_utc=utc_dt,
+                            solar_datetime_utc=solar_point.to_datetime_utc(),
+                        )
 
+                        # Déterminer si c'est l'heure d'été ou d'hiver
+                        season_type = "summer" if solar_point.is_dst else "winter"
 
-# For backward compatibility - but recommend using the new services
-def preview_weather_solar_processing(
-    weather_file_path: str,
-    solar_file_path: str,
-    threshold: float,
-    delta_t: float,
-    max_sample_adjustments: int = 20,
-) -> PreviewResult:
-    """
-    Legacy function for backward compatibility.
-    Recommend using PreviewService.create_preview_from_processing_result() instead.
-    """
-    from preview import create_preview_service
+                        # Ajouter à la collection des ajustements possibles
+                        all_adjustments_by_facade_season[facade][season_type].append(
+                            sample
+                        )
 
-    # Process all data using CoreProcessor
-    processor = CoreProcessor()
-    processing_result = processor.process_all_facades(
-        weather_file_path, solar_file_path, threshold, delta_t
-    )
+        # Créer la liste finale des échantillons pour l'affichage
+        sample_adjustments = []
 
-    # Create preview using the new service
-    preview_service = create_preview_service()
-    return preview_service.create_preview_from_processing_result(
-        processing_result, max_sample_adjustments
-    )
+        # Sélectionner des échantillons bien espacés pour chaque façade et type de saison
+        total_possible_adjustments = 0
+        for facade in facades:
+            for season_type in ["winter", "summer"]:
+                total_possible_adjustments += len(
+                    all_adjustments_by_facade_season[facade][season_type]
+                )
 
+                if all_adjustments_by_facade_season[facade][season_type]:
+                    logger.info(
+                        f"Sélection d'échantillons pour {facade} ({season_type}): {len(all_adjustments_by_facade_season[facade][season_type])} disponibles"
+                    )
 
-def process_weather_with_solar_data(
-    weather_file_path: str,
-    solar_file_path: str,
-    threshold: float,
-    delta_t: float,
-    output_dir: str = "output",
-    output_generator: Optional[OutputGenerator] = None,
-) -> Dict[str, str]:
-    """
-    Legacy function for backward compatibility.
-    Recommend using CoreProcessor + FileGenerationService instead.
-    """
-    from file_generation_service import create_file_generation_service
+                    # Trier les ajustements par date/heure
+                    all_adjustments_by_facade_season[facade][season_type].sort(
+                        key=lambda x: (
+                            x.weather_datetime_utc.month,
+                            x.weather_datetime_utc.day,
+                            x.weather_datetime_utc.hour,
+                        )
+                    )
 
-    # Process all data first
-    processor = CoreProcessor()
-    processing_result = processor.process_all_facades(
-        weather_file_path, solar_file_path, threshold, delta_t
-    )
+                    # Pour garantir des exemples bien espacés, on essaie de prendre des échantillons de différentes parties de l'année
+                    available_samples = all_adjustments_by_facade_season[facade][
+                        season_type
+                    ]
+                    selected_samples = []
 
-    # Generate files using the new service
-    file_service = create_file_generation_service(output_generator)
-    return file_service.generate_files_from_processing_result(
-        processing_result, output_dir
-    )
+                    if len(available_samples) <= max_samples_per_type:
+                        # Si nous avons peu d'échantillons, prenons-les tous
+                        selected_samples = available_samples
+                    else:
+                        # Diviser l'ensemble des ajustements en segments et prendre un échantillon de chaque segment
+                        segment_size = len(available_samples) // max_samples_per_type
 
+                        for i in range(max_samples_per_type):
+                            idx = i * segment_size + (
+                                segment_size // 2
+                            )  # Prendre un échantillon au milieu de chaque segment
+                            if idx < len(available_samples):
+                                selected_samples.append(available_samples[idx])
 
-def generate_files_from_preview(
-    preview_result: PreviewResult,
-    output_dir: str = "output",
-    output_generator: Optional[OutputGenerator] = None,
-    selected_facades: Optional[List[str]] = None,
-) -> Dict[str, str]:
-    """
-    Legacy function for backward compatibility.
-    Recommend using FileGenerationService.generate_files_from_preview_result() instead.
-    """
-    from file_generation_service import create_file_generation_service
+                    # Vérifier que les échantillons sont suffisamment espacés (différents jours si possible)
+                    final_samples = []
+                    used_days = set()
 
-    file_service = create_file_generation_service(output_generator)
-    return file_service.generate_files_from_preview_result(
-        preview_result, output_dir, selected_facades
-    )
+                    for sample in selected_samples:
+                        day_key = (
+                            sample.weather_datetime_utc.month,
+                            sample.weather_datetime_utc.day,
+                        )
 
+                        # Si ce jour est déjà utilisé et qu'on a d'autres options, chercher un autre jour
+                        if day_key in used_days and len(final_samples) < len(
+                            available_samples
+                        ):
+                            # Chercher un échantillon d'un autre jour
+                            for alt_sample in available_samples:
+                                alt_day_key = (
+                                    alt_sample.weather_datetime_utc.month,
+                                    alt_sample.weather_datetime_utc.day,
+                                )
+                                if alt_day_key not in used_days:
+                                    sample = alt_sample
+                                    day_key = alt_day_key
+                                    break
 
-# Example usage
-if __name__ == "__main__":
-    # Setup logging for testing
-    logging.basicConfig(level=logging.DEBUG)
+                        used_days.add(day_key)
+                        final_samples.append(sample)
 
-    # Test parameters
-    weather_file = "tests/data/TRY2045_488284093163_Jahr.dat"
-    solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-    threshold = 200.0  # W/m²
-    delta_t = 7.0  # °C
+                    # Ajouter les échantillons sélectionnés à notre collection finale
+                    sample_adjustments.extend(final_samples)
+                    logger.debug(
+                        f"Ajouté {len(final_samples)} échantillons espacés pour {facade} ({season_type})"
+                    )
+                else:
+                    logger.info(
+                        f"Pas d'exemple de {season_type} disponible pour la façade {facade}"
+                    )
 
-    try:
-        output_files = process_weather_with_solar_data(
-            weather_file, solar_file, threshold, delta_t
+        logger.info(
+            f"Collecté {len(sample_adjustments)} exemples représentatifs sur {total_possible_adjustments} ajustements possibles"
         )
 
-        print(f"Generated {len(output_files)} output files:")
-        for facade, filepath in output_files.items():
-            print(f"  {facade}: {filepath}")
+        return PreviewData(
+            facades=facades,
+            total_adjustments=total_adjustments,
+            total_data_points=len(weather_data),
+            adjustments_by_facade=adjustments_by_facade,
+            sample_adjustments=sample_adjustments,
+            weather_data=weather_data,
+            solar_data=solar_data,
+            weather_file_header=weather_header,
+            threshold=threshold,
+            delta_t=delta_t,
+            weather_file_path=weather_file,  # Ajouter le chemin du fichier météo
+            solar_file_path=solar_file,  # Ajouter le chemin du fichier solaire
+        )
 
-    except Exception as e:
-        print(f"Error: {e}")
+    def generate_files(self, preview_data: PreviewData, output_dir: str) -> List[str]:
+        """Génère les fichiers de sortie basés sur les données de prévisualisation."""
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        generated_files = []
+
+        # Créer un index des données solaires (basé sur UTC)
+        solar_index = {}
+        for solar_point in preview_data.solar_data:
+            # Convertir en UTC pour la comparaison
+            utc_dt = solar_point.to_datetime_utc()
+            key = (utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour, utc_dt.minute)
+            solar_index[key] = solar_point
+
+        # Générer un fichier par façade
+        for facade in preview_data.facades:
+            # Récupérer le nom de base du fichier météo original
+            weather_file_name = Path(preview_data.weather_file_path).stem
+
+            # Créer le nouveau format de nom de fichier: <nom du fichier .dat>_<facade building body>.dat
+            filename = f"{weather_file_name}_{facade.replace(' ', '_')}.dat"
+            output_file = output_path / filename
+
+            with open(output_file, "w", encoding="iso-8859-1") as f:
+                # Écrire le header
+                f.write(preview_data.weather_file_header)
+
+                # Écrire les données ajustées
+                for weather_point in preview_data.weather_data:
+                    # Convertir en UTC pour la comparaison
+                    utc_dt = weather_point.to_datetime_utc()
+                    key = (
+                        utc_dt.year,
+                        utc_dt.month,
+                        utc_dt.day,
+                        utc_dt.hour,
+                        utc_dt.minute,
+                    )
+
+                    # Vérifier s'il faut ajuster la température pour cette façade
+                    adjusted_temp = weather_point.temperature
+                    if key in solar_index:
+                        solar_point = solar_index[key]
+                        irradiance = solar_point.irradiance_by_facade.get(facade, 0)
+
+                        if irradiance > preview_data.threshold:
+                            adjusted_temp = (
+                                weather_point.temperature + preview_data.delta_t
+                            )
+                            logger.debug(
+                                f"Ajustement pour {facade}: {weather_point.get_original_datetime_str()} (DAT) -> "
+                                f"{solar_point.get_original_datetime_str()} (HTML), "
+                                f"Irradiance: {irradiance:.1f}, "
+                                f"Temp: {weather_point.temperature:.1f} -> {adjusted_temp:.1f}"
+                            )
+
+                    adjusted_temperature_str = f"{adjusted_temp:.1f}".rjust(5)
+                    raw_line = weather_point.raw_line
+
+                    # Reconstruire la ligne en préservant tout le formatage original
+                    adjusted_line = (
+                        raw_line[:25] + adjusted_temperature_str + raw_line[25 + 5 :]
+                    )
+
+                    f.write(adjusted_line)
+
+            generated_files.append(str(output_file))
+            logger.info(f"Generated file: {output_file}")
+
+        return generated_files

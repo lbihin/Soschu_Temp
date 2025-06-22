@@ -1,547 +1,246 @@
 """
-Integration tests for the complete Soschu Temperature tool pipeline.
+Tests d'intégration pour le Soschu Temperature Tool.
 
-This test suite covers the end-to-end functionality including weather data parsing,
-solar irradiance parsing, core processing with facade-specific temperature adjustments,
-and file generation workflow.
+Ce module teste le comportement complet de l'application en intégrant
+les différents composants et modules ensemble.
 """
 
-import sys
 import tempfile
+from parser import SolarParser, WeatherParser
 from pathlib import Path
 
 import pytest
 
-# Add src directory to path for imports
-sys.path.append(str(Path(__file__).parent.parent / "src"))
-
-from core import CoreProcessor, FacadeProcessor, process_weather_with_solar_data
-from solar import SolarDataParser, load_solar_irridance_data
-from weather import WeatherDataAnalyzer, WeatherDataParser, load_weather_data
+from core import SoschuProcessor
+from preview import PreviewData
 
 
-class TestCoreIntegration:
-    """Integration tests for the core processing functionality."""
+@pytest.fixture
+def sample_weather_file():
+    """Fixture pour un fichier météo de test."""
+    return str(Path(__file__).parent / "data" / "TRY2045_488284093163_Jahr.dat")
 
-    def test_end_to_end_processing_workflow(self, sample_weather_file):
-        """Test the complete end-to-end processing workflow."""
+
+@pytest.fixture
+def sample_solar_file():
+    """Fixture pour un fichier solaire de test."""
+    return str(
+        Path(__file__).parent / "data" / "Solare Einstrahlung auf die Fassade.html"
+    )
+
+
+class TestEndToEndWorkflow:
+    """Tests pour le workflow complet de l'application."""
+
+    def test_complete_processing_pipeline(self, sample_weather_file, sample_solar_file):
+        """Test le pipeline complet de traitement des données."""
+        # Vérifier que les fichiers existent
         if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
+            pytest.skip("Fichier météo d'exemple non disponible")
+        if not Path(sample_solar_file).exists():
+            pytest.skip("Fichier solaire d'exemple non disponible")
 
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
+        # Initialiser le processeur
+        processor = SoschuProcessor()
 
+        # Créer un répertoire temporaire pour les fichiers de sortie
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Test the complete workflow
-            output_files = process_weather_with_solar_data(
-                weather_file_path=sample_weather_file,
-                solar_file_path=solar_file,
+            # Exécuter la prévisualisation
+            preview_data = processor.preview_adjustments(
+                weather_file=sample_weather_file,
+                solar_file=sample_solar_file,
                 threshold=200.0,
                 delta_t=7.0,
-                output_dir=temp_dir,
             )
 
-            # Verify output files were generated
-            assert isinstance(output_files, dict)
-            assert len(output_files) > 0
+            # Vérifier la structure des données de prévisualisation
+            assert isinstance(preview_data, PreviewData)
+            assert len(preview_data.facades) > 0
+            assert preview_data.total_data_points > 0
 
-            # Check that files were actually created and contain data
-            for facade_key, file_path in output_files.items():
-                file_obj = Path(file_path)
-                assert file_obj.exists()
-                assert file_obj.stat().st_size > 0
+            # Vérifier que certaines façades ont des ajustements
+            assert preview_data.total_adjustments > 0
+            assert any(
+                count > 0 for count in preview_data.adjustments_by_facade.values()
+            )
 
-                # Verify file content structure
-                with open(file_obj, "r", encoding="latin1") as f:
-                    content = f.read()
-                    # Check that it's a TRY format file
-                    assert "Koordinatensystem" in content or "Format:" in content
-                    # Check that it contains weather data
-                    lines = content.strip().split("\n")
-                    data_lines = [
-                        line
-                        for line in lines
-                        if not line.startswith(
-                            (
-                                "Koordinatensystem",
-                                "Rechtswert",
-                                "Hochwert",
-                                "Hoehenlage",
-                                "Erstellung",
-                                "Art",
-                                "Bezugszeitraum",
-                                "Datenbasis",
-                                "Format:",
-                                "Reihenfolge",
-                                "RW",
-                                "HW",
-                                "MM",
-                                "t",
-                                "p",
-                                "WR",
-                                "WG",
-                                "N",
-                                "x",
-                                "RF",
-                                "B",
-                                "D",
-                                "A",
-                                "E",
-                                "IL",
-                                "***",
-                            )
-                        )
-                        and line.strip()
-                    ]
-                    assert len(data_lines) > 0, "Should contain weather data lines"
+            # Vérifier les échantillons d'ajustement
+            assert len(preview_data.sample_adjustments) > 0
+            for sample in preview_data.sample_adjustments:
+                # La température ajustée devrait être plus élevée que l'originale
+                assert sample.adjusted_temp > sample.original_temp
+                # La différence devrait être égale à delta_t (7.0)
+                assert sample.adjusted_temp - sample.original_temp == pytest.approx(7.0)
 
-    def test_facade_processor_integration(self, sample_weather_file):
-        """Test FacadeProcessor with real data."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
+            # TODO: Ajouter test de génération de fichiers de sortie
+            # Une fois que la méthode d'export est implémentée dans SoschuProcessor
 
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
+    def test_data_synchronization(self, sample_weather_file, sample_solar_file):
+        """Test la synchronisation entre les données météo et solaires."""
+        # Vérifier que les fichiers existent
+        if (
+            not Path(sample_weather_file).exists()
+            or not Path(sample_solar_file).exists()
+        ):
+            pytest.skip("Fichiers d'exemple non disponibles")
 
-        # Load weather and solar data
-        weather_metadata, weather_data = load_weather_data(sample_weather_file)
-        solar_metadata, solar_data = load_solar_irridance_data(solar_file)
+        # Parser les fichiers séparément
+        weather_parser = WeatherParser()
+        solar_parser = SolarParser()
 
-        # Test facade processor
-        processor = FacadeProcessor(threshold=250.0, delta_t=5.0)
+        weather_header, weather_data = weather_parser.parse(sample_weather_file)
+        solar_data = solar_parser.parse(sample_solar_file)
 
-        # Use CoreProcessor to extract facade combinations
-        core_processor = CoreProcessor()
-        facade_combinations = core_processor._extract_facade_combinations(
-            solar_metadata
-        )
-        if not facade_combinations:
-            pytest.skip("No facade combinations found in solar data")
+        # Vérifier qu'on a des données
+        assert len(weather_data) > 0
+        assert len(solar_data) > 0
 
-        facade_id, building_body = facade_combinations[0]
-
-        adjusted_metadata, adjusted_weather_data = processor.process_facade_data(
-            weather_data,
-            solar_metadata,
-            solar_data,
-            facade_id,
-            building_body,
+        # Exécuter le processus complet
+        processor = SoschuProcessor()
+        preview_data = processor.preview_adjustments(
+            weather_file=sample_weather_file,
+            solar_file=sample_solar_file,
+            threshold=200.0,
+            delta_t=7.0,
         )
 
-        # Verify adjustments were made
-        assert len(adjusted_weather_data) == len(weather_data)
-        assert adjusted_metadata.data_basis_3 != weather_metadata.data_basis_3
-        assert "Processed for" in adjusted_metadata.data_basis_3
-
-        # Verify some temperatures were adjusted
-        original_temps = [dp.temperature for dp in weather_data]
-        adjusted_temps = [dp.temperature for dp in adjusted_weather_data]
-
-        # Should have some differences (some temperatures increased)
-        temp_differences = [
-            adj - orig for orig, adj in zip(original_temps, adjusted_temps)
-        ]
-        adjustments_made = sum(1 for diff in temp_differences if diff > 0)
-        assert adjustments_made > 0
-
-    def test_core_processor_integration(self, sample_weather_file):
-        """Test CoreProcessor with real data."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
-
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            processor = CoreProcessor()
-
-            output_files = processor.process_all_facades(
-                weather_file_path=sample_weather_file,
-                solar_file_path=solar_file,
-                threshold=300.0,
-                delta_t=10.0,
-                output_dir=temp_dir,
-            )
-
-            assert len(output_files) > 0
-
-            # Test that each facade has its own file
-            facade_files = set()
-            for facade_key, file_path in output_files.items():
-                # Extract facade info from key
-                parts = facade_key.split("_")
-                facade_id = parts[0]  # e.g., "f2", "f3", "f4"
-
-                facade_files.add(facade_id)
-
-                # Verify file naming convention
-                assert facade_id in Path(file_path).name
-                # Files should contain facade identifier but not necessarily "weather_"
-                assert Path(file_path).suffix == ".dat"
-
-            # Should have multiple facades
-            assert len(facade_files) >= 2
-
-    def test_different_threshold_scenarios(self, sample_weather_file):
-        """Test processing with different threshold scenarios."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
-
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Test with very high threshold (minimal adjustments)
-            output_files_high = process_weather_with_solar_data(
-                weather_file_path=sample_weather_file,
-                solar_file_path=solar_file,
-                threshold=1000.0,  # Very high
-                delta_t=15.0,
-                output_dir=f"{temp_dir}/high",
-            )
-
-            # Test with low threshold (many adjustments)
-            output_files_low = process_weather_with_solar_data(
-                weather_file_path=sample_weather_file,
-                solar_file_path=solar_file,
-                threshold=50.0,  # Low
-                delta_t=15.0,
-                output_dir=f"{temp_dir}/low",
-            )
-
-            # Should generate same number of facade files
-            assert len(output_files_high) == len(output_files_low)
-
-            # Verify both sets exist and contain appropriate metadata
-            for files_dict, threshold in [
-                (output_files_high, 1000.0),
-                (output_files_low, 50.0),
-            ]:
-                for file_path in files_dict.values():
-                    assert Path(file_path).exists(), f"File should exist: {file_path}"
-                    with open(file_path, "r", encoding="latin1") as f:
-                        content = f.read()
-                        # Check that it's a TRY format file
-                        assert "Koordinatensystem" in content or "Format:" in content
-                        # Check that it contains weather data
-                        lines = content.strip().split("\n")
-                        data_lines = [
-                            line
-                            for line in lines
-                            if not line.startswith(
-                                (
-                                    "Koordinatensystem",
-                                    "Rechtswert",
-                                    "Hochwert",
-                                    "Hoehenlage",
-                                    "Erstellung",
-                                    "Art",
-                                    "Bezugszeitraum",
-                                    "Datenbasis",
-                                    "Format:",
-                                    "Reihenfolge",
-                                    "RW",
-                                    "HW",
-                                    "MM",
-                                    "t",
-                                    "p",
-                                    "WR",
-                                    "WG",
-                                    "N",
-                                    "x",
-                                    "RF",
-                                    "B",
-                                    "D",
-                                    "A",
-                                    "E",
-                                    "IL",
-                                    "***",
-                                )
-                            )
-                            and line.strip()
-                        ]
-                        assert len(data_lines) > 0, "Should contain weather data lines"
-
-
-class TestDataLoadingIntegration:
-    """Integration tests for data loading functions."""
-
-    def test_load_weather_data_integration(self, sample_weather_file):
-        """Test the complete load_weather_data function."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
-
-        metadata, data_points = load_weather_data(sample_weather_file)
-
-        # Test metadata
-        assert metadata.rechtswert == 3951500
-        assert metadata.hochwert == 2459500
-        assert metadata.elevation == 245
-        assert "Lambert" in metadata.coordinate_system
-
-        # Test data points
-        assert isinstance(data_points, list)
-        assert len(data_points) == 8760  # Full year
-
-        # Test analyzer creation from data points
-        analyzer = WeatherDataAnalyzer(data_points)
-        temp_stats = analyzer.get_temperature_stats()
-        assert temp_stats["count"] == 8760
-        assert -20 < temp_stats["min"] < 50  # Reasonable temperature range
-
-    def test_load_solar_data_integration(self):
-        """Test solar data loading integration."""
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
-
-        metadata, data_points = load_solar_irridance_data(solar_file)
-
-        # Test metadata
-        assert metadata.title == "Solare Einstrahlung auf die Fassade"
-        assert len(metadata.facade_columns) > 0
-
-        # Test data points
-        assert isinstance(data_points, list)
-        assert len(data_points) > 0
-
-        # Test that facade columns are present in data
-        sample_point = data_points[0]
-        assert len(sample_point.irradiance_values) > 0
-
-        # Verify facade column names match metadata
-        facade_keys = set()
-        for point in data_points[:10]:  # Check first 10 points
-            facade_keys.update(point.irradiance_values.keys())
-
-        metadata_columns = set(metadata.facade_columns)
-        assert facade_keys.issubset(metadata_columns)
-
-    def test_parser_consistency_integration(self, sample_weather_file):
-        """Test consistency between different parsing approaches."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
-
-        # Parse data using load_weather_data
-        metadata_load, data_points_load = load_weather_data(sample_weather_file)
-
-        # Parse data directly using parser
-        parser = WeatherDataParser()
-        metadata_direct, data_points_direct = parser.parse_file(sample_weather_file)
-
-        # Results should be identical
-        assert metadata_load.model_dump() == metadata_direct.model_dump()
-        assert len(data_points_load) == len(data_points_direct)
-
-        # Compare samples
-        for i in [0, 100, 1000]:
-            if i < len(data_points_load):
-                assert (
-                    data_points_load[i].model_dump()
-                    == data_points_direct[i].model_dump()
+        # Vérifier que les données temporelles sont correctement alignées dans les échantillons
+        for sample in preview_data.sample_adjustments:
+            # Les horodatages UTC devraient être proches ou identiques
+            if sample.weather_datetime_utc and sample.solar_datetime_utc:
+                # Calculer la différence en heures
+                time_diff = abs(
+                    (
+                        sample.weather_datetime_utc - sample.solar_datetime_utc
+                    ).total_seconds()
+                    / 3600
                 )
+                # La différence devrait être minimale (idéalement moins d'une heure)
+                assert (
+                    time_diff <= 1.0
+                ), f"Écart temporel trop important: {time_diff} heures"
 
 
-class TestWeatherAnalysisIntegration:
-    """Integration tests for weather analysis with new data structure."""
+class TestScenarioSpecifiques:
+    """Tests de différents scénarios spécifiques."""
 
-    def test_analyzer_with_loaded_data(self, sample_weather_file):
-        """Test WeatherDataAnalyzer with data from load_weather_data."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
+    def test_seuil_ajustement(self, sample_weather_file, sample_solar_file):
+        """Test l'effet du seuil sur les ajustements de température."""
+        # Vérifier que les fichiers existent
+        if (
+            not Path(sample_weather_file).exists()
+            or not Path(sample_solar_file).exists()
+        ):
+            pytest.skip("Fichiers d'exemple non disponibles")
 
-        metadata, data_points = load_weather_data(sample_weather_file)
-        analyzer = WeatherDataAnalyzer(data_points)
+        # Initialiser le processeur
+        processor = SoschuProcessor()
 
-        # Test basic analytics
-        temp_stats = analyzer.get_temperature_stats()
-        solar_stats = analyzer.get_solar_radiation_stats()
-        wind_stats = analyzer.get_wind_stats()
+        # Tester avec différentes valeurs de seuil
+        seuils = [50.0, 200.0, 500.0]
+        resultats = []
 
-        assert temp_stats["count"] == 8760
-        assert solar_stats["total_max"] > 0
-        assert wind_stats["max_speed"] >= 0
-
-        # Test seasonal analysis
-        summer_data = analyzer.filter_by_month(7)  # July
-        winter_data = analyzer.filter_by_month(1)  # January
-
-        summer_analyzer = WeatherDataAnalyzer(summer_data)
-        winter_analyzer = WeatherDataAnalyzer(winter_data)
-
-        summer_temp = summer_analyzer.get_temperature_stats()
-        winter_temp = winter_analyzer.get_temperature_stats()
-
-        # Summer should generally be warmer
-        assert summer_temp["mean"] > winter_temp["mean"]
-
-    def test_data_quality_with_new_structure(self, sample_weather_file):
-        """Test data quality validation with new data loading structure."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
-
-        metadata, data_points = load_weather_data(sample_weather_file)
-        analyzer = WeatherDataAnalyzer(data_points)
-        quality = analyzer.validate_data_quality()
-
-        # Should have good data quality for the test file
-        assert quality["data_quality"] == "Good"
-        assert quality["total_points"] == 8760
-
-    def test_high_solar_analysis_integration(self, sample_weather_file):
-        """Test high solar irradiance analysis."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
-
-        metadata, data_points = load_weather_data(sample_weather_file)
-        analyzer = WeatherDataAnalyzer(data_points)
-
-        # Test different thresholds
-        thresholds = [100, 200, 300, 500]
-        previous_count = len(data_points)
-
-        for threshold in thresholds:
-            high_solar = analyzer.get_high_solar_periods(threshold)
-            current_count = len(high_solar)
-
-            # Higher thresholds should have fewer or equal periods
-            assert current_count <= previous_count
-            previous_count = current_count
-
-            # All returned periods should exceed threshold
-            for dp in high_solar:
-                assert dp.total_solar_irradiance() > threshold
-
-
-class TestErrorHandlingIntegration:
-    """Integration tests for error handling scenarios."""
-
-    def test_invalid_file_paths(self):
-        """Test processing with invalid file paths."""
-        with pytest.raises(FileNotFoundError):
-            process_weather_with_solar_data(
-                weather_file_path="nonexistent_weather.dat",
-                solar_file_path="nonexistent_solar.html",
-                threshold=200.0,
+        for seuil in seuils:
+            preview = processor.preview_adjustments(
+                weather_file=sample_weather_file,
+                solar_file=sample_solar_file,
+                threshold=seuil,
                 delta_t=7.0,
             )
+            resultats.append(preview.total_adjustments)
 
-    def test_invalid_parameters(self, sample_weather_file):
-        """Test processing with invalid parameters."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
+        # Vérifier que le nombre d'ajustements diminue lorsque le seuil augmente
+        assert (
+            resultats[0] >= resultats[1] >= resultats[2]
+        ), "Le nombre d'ajustements devrait diminuer avec l'augmentation du seuil"
 
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
+    def test_delta_t_impact(self, sample_weather_file, sample_solar_file):
+        """Test l'impact du delta_t sur les ajustements de température."""
+        # Vérifier que les fichiers existent
+        if (
+            not Path(sample_weather_file).exists()
+            or not Path(sample_solar_file).exists()
+        ):
+            pytest.skip("Fichiers d'exemple non disponibles")
 
-        # Test negative threshold
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Should work but might not make sense
-            output_files = process_weather_with_solar_data(
-                weather_file_path=sample_weather_file,
-                solar_file_path=solar_file,
-                threshold=-100.0,  # Negative threshold
-                delta_t=5.0,
-                output_dir=temp_dir,
-            )
-            # Should still generate files (all irradiance values > -100)
-            assert len(output_files) > 0
+        # Initialiser le processeur
+        processor = SoschuProcessor()
 
-    def test_empty_output_directory_creation(self, sample_weather_file):
-        """Test that output directories are created properly."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
+        # Tester avec une valeur fixe de seuil et deux valeurs de delta_t
+        preview1 = processor.preview_adjustments(
+            weather_file=sample_weather_file,
+            solar_file=sample_solar_file,
+            threshold=200.0,
+            delta_t=5.0,
+        )
 
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
+        preview2 = processor.preview_adjustments(
+            weather_file=sample_weather_file,
+            solar_file=sample_solar_file,
+            threshold=200.0,
+            delta_t=10.0,
+        )
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            nested_output_dir = f"{temp_dir}/deeply/nested/output/directory"
+        # Vérifier que le nombre d'ajustements est identique (dépend uniquement du seuil)
+        assert preview1.total_adjustments == preview2.total_adjustments
 
-            output_files = process_weather_with_solar_data(
-                weather_file_path=sample_weather_file,
-                solar_file_path=solar_file,
-                threshold=200.0,
-                delta_t=7.0,
-                output_dir=nested_output_dir,
-            )
+        # Vérifier que la différence d'ajustement est bien appliquée
+        if preview1.sample_adjustments:
+            for i in range(min(3, len(preview1.sample_adjustments))):
+                sample1 = preview1.sample_adjustments[i]
+                sample2 = preview2.sample_adjustments[i]
 
-            # Directory should be created and files should exist
-            assert Path(nested_output_dir).exists()
-            assert len(output_files) > 0
+                # Même point mais delta_t différent
+                assert sample1.facade_id == sample2.facade_id
+                assert sample1.original_temp == sample2.original_temp
 
-            for file_path in output_files.values():
-                assert Path(file_path).exists()
-                assert str(nested_output_dir) in str(file_path)
+                # La différence entre ajusté et original devrait correspondre au delta_t
+                assert sample1.adjusted_temp - sample1.original_temp == pytest.approx(
+                    5.0
+                )
+                assert sample2.adjusted_temp - sample2.original_temp == pytest.approx(
+                    10.0
+                )
 
 
 class TestPerformanceIntegration:
-    """Integration tests for performance characteristics."""
+    """Tests de performance."""
 
-    def test_processing_performance(self, sample_weather_file):
-        """Test that complete processing completes in reasonable time."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
-
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
+    def test_processing_time(self, sample_weather_file, sample_solar_file):
+        """Test que le processus s'exécute dans un temps raisonnable."""
+        # Vérifier que les fichiers existent
+        if (
+            not Path(sample_weather_file).exists()
+            or not Path(sample_solar_file).exists()
+        ):
+            pytest.skip("Fichiers d'exemple non disponibles")
 
         import time
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            start_time = time.time()
+        # Initialiser le processeur
+        processor = SoschuProcessor()
 
-            output_files = process_weather_with_solar_data(
-                weather_file_path=sample_weather_file,
-                solar_file_path=solar_file,
-                threshold=200.0,
-                delta_t=7.0,
-                output_dir=temp_dir,
-            )
+        # Mesurer le temps d'exécution
+        start_time = time.time()
 
-            end_time = time.time()
-            processing_time = end_time - start_time
+        # Exécuter la prévisualisation
+        preview_data = processor.preview_adjustments(
+            weather_file=sample_weather_file,
+            solar_file=sample_solar_file,
+            threshold=200.0,
+            delta_t=7.0,
+        )
 
-            # Should complete processing in reasonable time
-            assert processing_time < 30.0  # 30 seconds max
-            assert len(output_files) > 0
+        end_time = time.time()
+        processing_time = end_time - start_time
 
-            print(
-                f"Processing took {processing_time:.2f} seconds for {len(output_files)} facades"
-            )
-
-    def test_memory_efficiency(self, sample_weather_file):
-        """Test that processing doesn't consume excessive memory."""
-        if not Path(sample_weather_file).exists():
-            pytest.skip("Sample weather file not available")
-
-        solar_file = "tests/data/Solare Einstrahlung auf die Fassade.html"
-        if not Path(solar_file).exists():
-            pytest.skip("Sample solar file not available")
-
-        # This is a basic memory test - in a real scenario you might use memory profilers
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                output_files = process_weather_with_solar_data(
-                    weather_file_path=sample_weather_file,
-                    solar_file_path=solar_file,
-                    threshold=200.0,
-                    delta_t=7.0,
-                    output_dir=temp_dir,
-                )
-
-                # If we get here without memory errors, consider it a pass
-                assert len(output_files) > 0
-
-            except MemoryError:
-                pytest.fail("Processing consumed too much memory")
+        # Vérifier que le traitement s'est fait dans un temps raisonnable
+        assert (
+            processing_time < 30.0
+        ), f"Temps de traitement trop long: {processing_time:.2f} secondes"
+        print(
+            f"Temps de traitement: {processing_time:.2f} secondes pour {preview_data.total_data_points} points de données"
+        )
 
 
 if __name__ == "__main__":

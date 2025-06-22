@@ -1,70 +1,76 @@
 """
-Pytest configuration and fixtures for weather data tests.
+Pytest configuration et fixtures pour les tests du Soschu Temperature Tool.
 """
 
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
 
 import pytest
 
-from src.weather import (
-    WeatherDataAnalyzer,
-    WeatherDataParser,
-    WeatherDataPoint,
-    WeatherFileMetadata,
-    load_weather_data,
-)
+from preview import AdjustmentSample, PreviewData
+from solar import SolarPoint
+from weather import WeatherPoint
 
 
 @pytest.fixture
 def sample_weather_file():
     """Path to the sample weather data file."""
-    return "tests/data/TRY2045_488284093163_Jahr.dat"
+    return str(Path(__file__).parent / "data" / "TRY2045_488284093163_Jahr.dat")
 
 
 @pytest.fixture
-def sample_weather_data_point():
+def sample_solar_file():
+    """Path to the sample solar data file."""
+    return str(
+        Path(__file__).parent / "data" / "Solare Einstrahlung auf die Fassade.html"
+    )
+
+
+@pytest.fixture
+def sample_weather_point():
     """Create a sample weather data point for testing."""
-    return WeatherDataPoint(
-        rechtswert=3951500,
-        hochwert=2459500,
+    return WeatherPoint(
         month=6,
         day=15,
         hour=12,
         temperature=25.5,
-        pressure=1013,
-        wind_direction=180,
-        wind_speed=3.2,
-        cloud_cover=4,
-        humidity_ratio=8.5,
-        relative_humidity=65,
-        direct_solar=600,
-        diffuse_solar=150,
-        atmospheric_radiation=350,
-        terrestrial_radiation=-400,
-        quality_flag=1,
+        raw_line="06  15  12  25.5  ...",
+        year=2045,
     )
 
 
 @pytest.fixture
-def sample_metadata():
-    """Create sample weather file metadata."""
-    return WeatherFileMetadata(
-        coordinate_system="Lambert konform konisch",
-        rechtswert=3951500,
-        hochwert=2459500,
-        elevation=245,
-        try_type="mittleres Jahr",
-        reference_period="2031-2060",
-        data_basis_1="Beobachtungsdaten Zeitraum 1995-2012",
-        data_basis_2="Klimasimulationen Zeitraum 1971-2000",
-        data_basis_3="Klimasimulationen Zeitraum 2031-2060",
-        creation_date="Mai 2016",
+def sample_solar_point():
+    """Create a sample solar data point for testing."""
+    return SolarPoint(
+        month=6,
+        day=15,
+        hour=12,
+        irradiance_by_facade={"f2": 750.0, "f3": 250.0, "f4": 100.0},
+        is_dst=True,
+        year=2045,
     )
 
 
 @pytest.fixture
-def sample_data_points():
+def sample_adjustment():
+    """Create a sample adjustment for testing."""
+    return AdjustmentSample(
+        facade_id="f2",
+        datetime_str="15.06.2045 12:00",
+        weather_datetime_str="15.06 12:00",
+        solar_datetime_str="15.06.2045 12:00 MESZ",
+        original_temp=25.5,
+        adjusted_temp=32.5,
+        solar_irradiance=750.0,
+        weather_datetime_utc=datetime(2045, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
+        solar_datetime_utc=datetime(2045, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
+    )
+
+
+@pytest.fixture
+def sample_weather_data():
     """Create a list of sample weather data points."""
     data_points = []
 
@@ -73,32 +79,13 @@ def sample_data_points():
         # Simulate temperature variation throughout the day
         temp = 15 + 10 * abs(12 - hour) / 12
 
-        # Simulate solar radiation (only during daylight hours)
-        if 6 <= hour <= 18:
-            solar_direct = max(0, 500 * (1 - abs(12 - hour) / 6))
-            solar_diffuse = max(0, 100 * (1 - abs(12 - hour) / 6))
-        else:
-            solar_direct = 0
-            solar_diffuse = 0
-
-        data_point = WeatherDataPoint(
-            rechtswert=3951500,
-            hochwert=2459500,
+        data_point = WeatherPoint(
             month=6,
             day=15,
-            hour=hour,
+            hour=hour,  # Format 1-24
             temperature=temp,
-            pressure=1013,
-            wind_direction=180 + hour * 5,  # Varying wind direction
-            wind_speed=2.0 + hour * 0.1,
-            cloud_cover=hour % 9,
-            humidity_ratio=6.0 + hour * 0.1,
-            relative_humidity=60 + hour % 30,
-            direct_solar=int(solar_direct),
-            diffuse_solar=int(solar_diffuse),
-            atmospheric_radiation=300,
-            terrestrial_radiation=-350,
-            quality_flag=1,
+            raw_line=f"06  15  {hour:02d}  {temp:.1f}  ...",
+            year=2045,
         )
         data_points.append(data_point)
 
@@ -106,76 +93,65 @@ def sample_data_points():
 
 
 @pytest.fixture
-def weather_analyzer(sample_data_points):
-    """Create a weather data analyzer with sample data."""
-    return WeatherDataAnalyzer(sample_data_points)
+def sample_solar_data():
+    """Create a list of sample solar data points."""
+    data_points = []
+
+    # Create data for one day (24 hours)
+    for hour in range(24):  # Format 0-23
+        # Simulate solar irradiance (only during daylight hours)
+        if 6 <= hour <= 18:
+            f2_irradiance = max(0, 750 * (1 - abs(12 - hour) / 6))
+            f3_irradiance = max(0, 250 * (1 - abs(12 - hour) / 6))
+            f4_irradiance = max(0, 100 * (1 - abs(12 - hour) / 6))
+        else:
+            f2_irradiance = 0
+            f3_irradiance = 0
+            f4_irradiance = 0
+
+        # Déterminer si heure d'été (MESZ)
+        is_dst = (
+            True  # Pour simplifier, on considère que juin est toujours en heure d'été
+        )
+
+        data_point = SolarPoint(
+            month=6,
+            day=15,
+            hour=hour,  # Format 0-23
+            irradiance_by_facade={
+                "f2": f2_irradiance,
+                "f3": f3_irradiance,
+                "f4": f4_irradiance,
+            },
+            is_dst=is_dst,
+            year=2045,
+        )
+        data_points.append(data_point)
+
+    return data_points
 
 
 @pytest.fixture
-def weather_parser():
-    """Create a weather data parser instance."""
-    return WeatherDataParser()
+def sample_preview_data(sample_weather_data, sample_solar_data, sample_adjustment):
+    """Create sample preview data for testing."""
+    return PreviewData(
+        facades=["f2", "f3", "f4"],
+        total_adjustments=10,
+        total_data_points=24,
+        adjustments_by_facade={"f2": 5, "f3": 3, "f4": 2},
+        sample_adjustments=[sample_adjustment],
+        weather_data=sample_weather_data,
+        solar_data=sample_solar_data,
+        weather_file_header="Sample header",
+        threshold=200.0,
+        delta_t=7.0,
+        weather_file_path="/path/to/weather.dat",
+        solar_file_path="/path/to/solar.html",
+    )
 
 
 @pytest.fixture
-def invalid_weather_data():
-    """Create invalid weather data for testing validation."""
-    return {
-        "invalid_temperature": {
-            "rechtswert": 3951500,
-            "hochwert": 2459500,
-            "month": 6,
-            "day": 15,
-            "hour": 12,
-            "temperature": -100.0,  # Invalid temperature
-            "pressure": 1013,
-            "wind_direction": 180,
-            "wind_speed": 3.2,
-            "cloud_cover": 4,
-            "humidity_ratio": 8.5,
-            "relative_humidity": 65,
-            "direct_solar": 600,
-            "diffuse_solar": 150,
-            "atmospheric_radiation": 350,
-            "terrestrial_radiation": -400,
-            "quality_flag": 1,
-        },
-        "invalid_wind_direction": {
-            "rechtswert": 3951500,
-            "hochwert": 2459500,
-            "month": 6,
-            "day": 15,
-            "hour": 12,
-            "temperature": 25.5,
-            "pressure": 1013,
-            "wind_direction": 450,  # Invalid wind direction
-            "wind_speed": 3.2,
-            "cloud_cover": 4,
-            "humidity_ratio": 8.5,
-            "relative_humidity": 65,
-            "direct_solar": 600,
-            "diffuse_solar": 150,
-            "atmospheric_radiation": 350,
-            "terrestrial_radiation": -400,
-            "quality_flag": 1,
-        },
-        "invalid_month": {
-            "rechtswert": 3951500,
-            "hochwert": 2459500,
-            "month": 13,  # Invalid month
-            "day": 15,
-            "hour": 12,
-            "temperature": 25.5,
-            "pressure": 1013,
-            "wind_direction": 180,
-            "wind_speed": 3.2,
-            "cloud_cover": 4,
-            "humidity_ratio": 8.5,
-            "relative_humidity": 65,
-            "direct_solar": 600,
-            "diffuse_solar": 150,
-            "atmospheric_radiation": 350,
-            "terrestrial_radiation": -400,
-            "quality_flag": 1,
-        },
-    }
+def temp_output_dir():
+    """Provide a temporary directory for test outputs."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        yield temp_dir
