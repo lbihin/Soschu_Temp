@@ -11,8 +11,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # os: [macos-latest, windows-latest]
-        os: [macos-latest]
+        os: [macos-latest, windows-latest]
+        # os: [macos-latest]
         python-version: ['3.12']
 
     steps:
@@ -51,19 +51,18 @@ jobs:
     - name: Build executable
       run: poetry run build-exe
       
-    # - name: Upload artifact (Windows)
-    - name: Upload artifact
-      # if: matrix.os == 'windows-latest'
+    - name: Upload artifact (Windows)
+      if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
       with:
         name: soschu-temp-windows
         path: dist/soschu_temp.exe
         retention-days: 7
         
-    # - name: Upload artifact (macOS)
-    #   if: matrix.os == 'macos-latest'
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: soschu-temp-macos
-    #     path: dist/soschu_temp
-    #     retention-days: 7
+    - name: Upload artifact (macOS)
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: soschu-temp-macos
+        path: dist/soschu_temp
+        retention-days: 7
