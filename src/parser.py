@@ -89,8 +89,7 @@ class SolarParser:
             content = f.read()
 
         # Rechercher les façades dans les headers du tableau
-        # Pattern: "Gesamte solare Einstrahlung, f3$Building body, W/m2"
-        facade_pattern = r"Gesamte solare Einstrahlung, (f\d+\$Building body\d*), W/m2"
+        facade_pattern = r"Gesamte solare Einstrahlung,\s*(f[\da-zA-Z]+(?:\$[^\s,]+(?: [^\s,]+)?)?),\s*W/m2"
         facades = re.findall(facade_pattern, content)
 
         # Nettoyer les noms de façades (remplacer $ par espace)
@@ -129,9 +128,8 @@ class SolarParser:
                 irradiance_values = {}
 
                 # Rechercher les valeurs numériques dans les lignes suivantes
-                for j in range(
-                    1, min(len(facades) + 1, 5)
-                ):  # Limite à 5 lignes suivantes
+                # for j in range(1, min(len(facades) + 1, 5)):  # Limite à 5 lignes suivantes
+                for j in range(1, len(facades) + 1):
                     if i + j < len(lines):
                         value_line = lines[i + j]
                         value_match = re.search(
