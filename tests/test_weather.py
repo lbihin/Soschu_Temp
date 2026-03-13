@@ -4,11 +4,7 @@ Tests unitaires pour le module weather.py
 Ce module teste la classe WeatherPoint et ses méthodes associées.
 """
 
-import sys
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
-import pytest
+from datetime import timezone
 
 from weather import WeatherPoint
 

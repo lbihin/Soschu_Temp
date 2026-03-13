@@ -29,9 +29,7 @@ class FileSelector(tk.Frame):
 
         self.file_extension = file_extension
         self.file_description = file_description
-        self.has_format_info = (
-            file_extension is not None and file_description is not None
-        )
+        self.has_format_info = file_extension is not None and file_description is not None
 
         # Configuration de la grille interne
         self.grid_columnconfigure(1, weight=1)  # Entry column expands
@@ -50,12 +48,8 @@ class FileSelector(tk.Frame):
         self.format_label = None
         if self.has_format_info:
             format_text = f"Supported file formats: {self.file_extension}"
-            self.format_label = tk.Label(
-                self, text=format_text, font=("Arial", 8), fg="gray"
-            )
-            self.format_label.grid(
-                row=1, column=1, sticky="w", pady=(0, 5), padx=(0, 5)
-            )
+            self.format_label = tk.Label(self, text=format_text, font=("Arial", 8), fg="gray")
+            self.format_label.grid(row=1, column=1, sticky="w", pady=(0, 5), padx=(0, 5))
 
     def _select_file(self):
         """Ouvre la boîte de dialogue de sélection de fichier."""

@@ -48,43 +48,39 @@ def main():
 
     # 1. Tests unitaires rapides
     if run_command(
-        "poetry run pytest tests/test_weather_models.py tests/test_weather_parser.py tests/test_weather_analyzer.py -v",
+        "uv run pytest tests/test_weather_models.py tests/test_weather_parser.py tests/test_weather_analyzer.py -v",
         "Tests Unitaires (Modèles, Parser, Analyzer)",
     ):
         success_count += 1
     total_tests += 1
 
     # 2. Tests d'intégration
-    if run_command(
-        "poetry run pytest tests/test_integration.py -v", "Tests d'Intégration"
-    ):
+    if run_command("uv run pytest tests/test_integration.py -v", "Tests d'Intégration"):
         success_count += 1
     total_tests += 1
 
     # 3. Tests de performance
     if run_command(
-        "poetry run pytest tests/test_performance.py -v -s", "Tests de Performance"
+        "uv run pytest tests/test_performance.py -v -s", "Tests de Performance"
     ):
         success_count += 1
     total_tests += 1
 
     # 4. Couverture de code
     if run_command(
-        "poetry run pytest --cov=src --cov-report=term-missing --cov-report=html",
+        "uv run pytest --cov=src --cov-report=term-missing --cov-report=html",
         "Analyse de Couverture de Code",
     ):
         success_count += 1
     total_tests += 1
 
     # 5. Collecte de tous les tests
-    if run_command("poetry run pytest --collect-only -q", "Collecte de Tous les Tests"):
+    if run_command("uv run pytest --collect-only -q", "Collecte de Tous les Tests"):
         success_count += 1
     total_tests += 1
 
     # 6. Tests avec marqueurs
-    if run_command(
-        "poetry run pytest -m 'not slow' --tb=short", "Tests Rapides Seulement"
-    ):
+    if run_command("uv run pytest -m 'not slow' --tb=short", "Tests Rapides Seulement"):
         success_count += 1
     total_tests += 1
 

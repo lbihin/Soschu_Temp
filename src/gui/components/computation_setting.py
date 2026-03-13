@@ -1,5 +1,4 @@
 import tkinter as tk
-from tkinter import ttk
 
 
 class ToolTip:
@@ -85,9 +84,7 @@ class ComputationSetting(tk.Frame):
         # Validation numérique optionnelle
         if validate_numeric:
             vcmd = (self.register(self._validate_numeric), "%P")
-            self.entry = tk.Entry(
-                self, width=entry_width, validate="key", validatecommand=vcmd
-            )
+            self.entry = tk.Entry(self, width=entry_width, validate="key", validatecommand=vcmd)
         else:
             self.entry = tk.Entry(self, width=entry_width)
 

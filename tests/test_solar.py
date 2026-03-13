@@ -6,8 +6,6 @@ Ce module teste la classe SolarPoint et ses méthodes associées.
 
 from datetime import timezone
 
-import pytest
-
 from solar import SolarPoint
 
 

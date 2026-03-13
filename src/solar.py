@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict
 
 from constants import MEZ_TIMEZONE
 
@@ -12,7 +13,7 @@ class SolarPoint:
     month: int
     day: int
     hour: int  # 0-23 format (MEZ/MESZ)
-    irradiance_by_facade: Dict[str, float]
+    irradiance_by_facade: dict[str, float]
     is_dst: bool = False  # Flag pour indiquer si c'est l'heure d'été
     year: int = 2045  # Année extraite du fichier HTML
 

@@ -6,6 +6,7 @@ les différents composants et modules ensemble.
 """
 
 import tempfile
+import time
 from parser import SolarParser, WeatherParser
 from pathlib import Path
 
@@ -44,7 +45,7 @@ class TestEndToEndWorkflow:
         processor = SoschuProcessor()
 
         # Créer un répertoire temporaire pour les fichiers de sortie
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory():
             # Exécuter la prévisualisation
             preview_data = processor.preview_adjustments(
                 weather_file=sample_weather_file,
@@ -88,7 +89,7 @@ class TestEndToEndWorkflow:
         weather_parser = WeatherParser()
         solar_parser = SolarParser()
 
-        weather_header, weather_data = weather_parser.parse(sample_weather_file)
+        _weather_header, weather_data = weather_parser.parse(sample_weather_file)
         solar_data = solar_parser.parse(sample_solar_file)
 
         # Vérifier qu'on a des données
@@ -214,8 +215,6 @@ class TestPerformanceIntegration:
             or not Path(sample_solar_file).exists()
         ):
             pytest.skip("Fichiers d'exemple non disponibles")
-
-        import time
 
         # Initialiser le processeur
         processor = SoschuProcessor()

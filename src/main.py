@@ -11,30 +11,30 @@ Architecture simplifiée:
 4. Générateur de fichiers de sortie
 """
 
+from __future__ import annotations
+
 import logging
-import os
 import platform
 import subprocess
 import sys
 import tkinter as tk
+import traceback
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import List, Optional
 
 # Ajuster le path pour les imports en fonction de l'environnement
 if getattr(sys, "frozen", False):
     # Si l'application est "frozen" (packagée par PyInstaller)
-    # On doit ajouter le dossier 'src' au path
-    bundle_dir = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
-    if os.path.isdir(os.path.join(bundle_dir, "src")):
-        sys.path.insert(0, os.path.join(bundle_dir, "src"))
-    # Aussi ajouter le répertoire courant qui pourrait contenir src
+    bundle_dir = getattr(sys, "_MEIPASS", str(Path(__file__).resolve().parent))
+    _bundle_path = Path(bundle_dir)
+    if (_bundle_path / "src").is_dir():
+        sys.path.insert(0, str(_bundle_path / "src"))
     sys.path.insert(0, bundle_dir)
 else:
     # En développement, ajouter le répertoire parent au path si nécessaire
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    if os.path.basename(current_dir) == "src":
-        sys.path.insert(0, os.path.dirname(current_dir))
+    _current = Path(__file__).resolve().parent
+    if _current.name == "src":
+        sys.path.insert(0, str(_current.parent))
 
 from core import PreviewData, SoschuProcessor
 
@@ -51,17 +51,15 @@ class SoschuApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Soschu Temperature Tool")
-        self.root.geometry("800x450")  # Augmentation de la hauteur de la fenêtre
-        self.root.resizable(True, True)  # Permettre le redimensionnement pour les tests
+        self.root.geometry("800x450")
+        self.root.resizable(True, True)
 
-        # Variables pour stocker les fichiers et paramètres
         self.weather_file = tk.StringVar()
         self.solar_file = tk.StringVar()
         self.threshold = tk.StringVar(value="200")
         self.delta_t = tk.StringVar(value="7")
 
-        # Variable pour stocker les données de prévisualisation
-        self.preview_data: Optional[PreviewData] = None
+        self.preview_data: PreviewData | None = None
 
         self.setup_ui()
 
@@ -292,8 +290,6 @@ class SoschuApp:
 
         except Exception as e:
             logger.error(f"Erreur lors de la prévisualisation directe: {e}")
-            import traceback
-
             logger.error(traceback.format_exc())
             self.progress.stop()
             self.progress.pack_forget()
@@ -335,10 +331,9 @@ class SoschuApp:
 
         except Exception as e:
             logger.error(f"Erreur lors de la prévisualisation: {e}")
-            import traceback
-
             logger.error(traceback.format_exc())
-            self.root.after(0, lambda: self._preview_error(str(e)))
+            error_msg = str(e)
+            self.root.after(0, lambda: self._preview_error(error_msg))
 
     def _preview_completed(self):
         """Appelé quand la prévisualisation est terminée (thread principal)."""
@@ -391,7 +386,7 @@ class SoschuApp:
             logger.info("Fenêtre wizard créée avec succès")
         except Exception as e:
             logger.error(f"Erreur lors de la création du wizard: {e}")
-            messagebox.showerror("Erreur", f"Impossible de créer l'assistant: {str(e)}")
+            messagebox.showerror("Erreur", f"Impossible de créer l'assistant: {e!s}")
             return
 
         # Variables pour la navigation
@@ -407,7 +402,7 @@ class SoschuApp:
 
         # On ne crée pas de widgets visibles pour les étapes,
         # mais on garde la logique pour le fonctionnement interne
-        for i, step_text in enumerate(step_labels):
+        for _i, _step_text in enumerate(step_labels):
             # Créer des étiquettes invisibles pour la logique
             label = tk.Label(main_frame)
             step_widgets.append(label)
@@ -683,7 +678,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             # Appliquer des tags différents selon la saison
             tag = "summer" if is_dst else "winter"
 
-            item_id = tree.insert(
+            tree.insert(
                 "",
                 tk.END,
                 values=(
@@ -1160,17 +1155,11 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         # Appeler la méthode de gestion d'erreur
         self._generation_error_wizard(error_message)
 
-    def _generation_completed_wizard(self, generated_files: List[str], wizard_window):
+    def _generation_completed_wizard(self, generated_files: list[str], wizard_window):
         """Appelé quand la génération est terminée depuis le wizard."""
-        # Cette méthode est maintenant appelée après que l'interface ait déjà été mise à jour
-        # Nous allons afficher la liste des fichiers générés avec des coches vertes
-
         if not wizard_window.winfo_exists():
             logger.error("La fenêtre wizard n'existe plus")
             return
-
-        # On détermine le dossier qui contient les fichiers générés
-        output_folder = self.output_folder.get()
 
         try:
             # Effacer tous les widgets précédents dans la liste des fichiers
@@ -1178,7 +1167,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
                 widget.destroy()
 
             # Afficher la liste des fichiers avec des coches vertes
-            for i, file_path in enumerate(sorted(generated_files)):
+            for file_path in sorted(generated_files):
                 file_name = Path(file_path).name
                 file_frame = tk.Frame(self.files_list_frame)
                 file_frame.pack(fill=tk.X, pady=2)
@@ -1223,7 +1212,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
                     "Génération terminée",
                     f"Fichiers générés avec succès:\n\n{file_list}",
                 )
-            except:
+            except Exception:
                 pass
 
     def _open_folder(self, folder_path):
@@ -1242,7 +1231,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         except Exception as e:
             logger.error(f"Erreur lors de l'ouverture du dossier: {e}")
             messagebox.showwarning(
-                "Attention", f"Impossible d'ouvrir le dossier: {str(e)}"
+                "Attention", f"Impossible d'ouvrir le dossier: {e!s}"
             )
 
     def _generation_error_wizard(self, error_msg: str):
@@ -1266,8 +1255,6 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             root_height = self.root.winfo_height()
             logging.info(f"Dimensions de la fenêtre: {root_width}x{root_height}")
 
-            # Vérifier si le bouton est visible
-            button_visible = False
             button_x = self.preview_btn.winfo_rootx() - self.root.winfo_rootx()
             button_y = self.preview_btn.winfo_rooty() - self.root.winfo_rooty()
             button_height = self.preview_btn.winfo_height()

@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 import threading
 import tkinter as tk
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable
 
 # Configuration du logger pour ce module
 logger = logging.getLogger(__name__)
@@ -25,11 +27,11 @@ class TriggerButton(tk.Button):
         self,
         parent,
         text="Execute",
-        backend_function: Optional[Callable] = None,
-        mandatory_elements: Optional[List] = None,
-        validate_function: Optional[Callable] = None,
-        success_callback: Optional[Callable] = None,
-        error_callback: Optional[Callable] = None,
+        backend_function: Callable | None = None,
+        mandatory_elements: list | None = None,
+        validate_function: Callable | None = None,
+        success_callback: Callable | None = None,
+        error_callback: Callable | None = None,
         loading_text="Processing...",
         run_in_thread=True,
         check_interval=500,  # ms
@@ -112,10 +114,9 @@ class TriggerButton(tk.Button):
         Returns:
             bool: True si tous les éléments sont valides
         """
-        for element in self.mandatory_elements:
-            if not self._is_element_valid(element):
-                return False
-        return True
+        return all(
+            self._is_element_valid(element) for element in self.mandatory_elements
+        )
 
     def _is_element_valid(self, element) -> bool:
         """
@@ -208,10 +209,7 @@ class TriggerButton(tk.Button):
             logger.debug(f"Collected {len(args)} arguments")
 
             # Exécuter la fonction backend
-            if args:
-                result = self.backend_function(*args)
-            else:
-                result = self.backend_function()
+            result = self.backend_function(*args) if args else self.backend_function()
 
             logger.debug(f"Backend function completed with result: {result}")
 
@@ -223,7 +221,7 @@ class TriggerButton(tk.Button):
             # Stocker l'erreur pour traitement dans le thread principal
             self._error_pending = e
 
-    def _collect_arguments(self) -> List[Any]:
+    def _collect_arguments(self) -> list[Any]:
         """
         Collecte les arguments depuis les éléments obligatoires.
 

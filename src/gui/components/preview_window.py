@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 import tkinter as tk
 from tkinter import messagebox, ttk
-from typing import Callable, List, Optional
+from typing import Callable
 
 from preview import PreviewAdjustmentData, PreviewService, PreviewSummaryData
 
@@ -16,7 +18,7 @@ class PreviewWindow:
         self,
         parent,
         preview_result: PreviewService,
-        generate_callback: Optional[Callable] = None,
+        generate_callback: Callable | None = None,
     ):
         """
         Initialise la fenêtre de prévisualisation.
@@ -41,7 +43,7 @@ class PreviewWindow:
 
     def _generate_preview_samples(
         self, preview_service: PreviewService
-    ) -> List[PreviewAdjustmentData]:
+    ) -> list[PreviewAdjustmentData]:
         """Génère les échantillons d'ajustements pour l'onglet de prévisualisation."""
         return preview_service.get_samples()
 
@@ -103,7 +105,7 @@ class PreviewWindow:
         info_title.pack(fill=tk.X, pady=5)
 
         info_text = f"""
-Fichiers d´entrée:
+Fichiers d'entrée:
     • Météo: {self.summary_data.weather_filename}
     • IDA ICE: {self.summary_data.solar_filename}
 
@@ -262,7 +264,7 @@ Paramètres de traitement:
                 node = tree.insert(
                     "",
                     tk.END,
-                    text=f"{facade_name} - ❄️ Période heure d´hiver",
+                    text=f"{facade_name} - ❄️ Période heure d'hiver",
                     values=(
                         weather_timestamp,
                         ida_ice_timestamp,
@@ -287,7 +289,7 @@ Paramètres de traitement:
                 node = tree.insert(
                     "",
                     tk.END,
-                    text=f"{facade_name} - 🌞 Période heure d´été",
+                    text=f"{facade_name} - 🌞 Période heure d'été",
                     values=(
                         weather_timestamp,
                         ida_ice_timestamp,
@@ -323,9 +325,9 @@ Paramètres de traitement:
         #             continue
 
         #         season_display = (
-        #             "🌞 Période heure d´été"
+        #             "🌞 Période heure d'été"
         #             if season_name == "summer"
-        #             else "❄️ Période heure d´hiver"
+        #             else "❄️ Période heure d'hiver"
         #         )
         #         season_node = tree.insert(
         #             facade_node,
@@ -415,7 +417,6 @@ Paramètres de traitement:
     def _export_summary(self):
         """Exporte le résumé (fonctionnalité future)."""
         # TODO: Implémenter l'export en CSV ou texte
-        pass
 
     def _generate_files(self):
         """Lance la génération des fichiers."""
@@ -469,7 +470,7 @@ Paramètres de traitement:
                 self.window.config(cursor="")
             logger.error(f"Erreur lors de la génération: {e}")
             messagebox.showerror(
-                "Erreur", f"Erreur lors de la génération des fichiers:\n{str(e)}"
+                "Erreur", f"Erreur lors de la génération des fichiers:\n{e!s}"
             )
 
     def _on_close(self):
@@ -480,7 +481,7 @@ Paramètres de traitement:
 
 
 def show_preview_window(
-    parent, preview_result: PreviewService, generate_callback: Optional[Callable] = None
+    parent, preview_result: PreviewService, generate_callback: Callable | None = None
 ):
     """
     Fonction utilitaire pour afficher la fenêtre de prévisualisation.

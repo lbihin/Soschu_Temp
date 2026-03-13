@@ -54,27 +54,21 @@ def main():
     if target_platform == "windows":
         if is_windows:
             # Compilation native Windows sur Windows
-            success = build_native_windows(
-                project_root, entrypoint, exe_name, icon_path, dist_dir
-            )
+            success = build_native_windows(project_root, entrypoint, exe_name, icon_path, dist_dir)
         elif is_macos:
             # Cross-compilation Windows depuis macOS
             success = build_windows_on_macos(
                 project_root, entrypoint, exe_name, icon_path, dist_dir
             )
         else:
-            print(
-                f"[ERREUR] Impossible de compiler pour Windows depuis {platform.system()}"
-            )
+            print(f"[ERREUR] Impossible de compiler pour Windows depuis {platform.system()}")
             return 1
     elif target_platform == "macos":
         if is_macos:
             # Compilation native macOS sur macOS
             success = build_native_macos(project_root, entrypoint, exe_name, dist_dir)
         else:
-            print(
-                f"[ERREUR] Impossible de compiler pour macOS depuis {platform.system()}"
-            )
+            print(f"[ERREUR] Impossible de compiler pour macOS depuis {platform.system()}")
             return 1
     else:
         print(f"[ERREUR] Plateforme cible non reconnue: {target_platform}")
@@ -87,9 +81,8 @@ def main():
         else:
             print(f"[INFO] Exécutable disponible: {dist_dir / exe_name}")
         return 0
-    else:
-        print(f"[ERREUR] La compilation a échoué pour {target_platform}")
-        return 1
+    print(f"[ERREUR] La compilation a échoué pour {target_platform}")
+    return 1
 
 
 if __name__ == "__main__":

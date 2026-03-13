@@ -17,9 +17,7 @@ def main():
     """Fonction principale du script."""
     # Vérifier que nous sommes bien sur macOS
     if platform.system() != "Darwin":
-        print(
-            f"[ERREUR] Ce script ne fonctionne que sur macOS, pas sur {platform.system()}"
-        )
+        print(f"[ERREUR] Ce script ne fonctionne que sur macOS, pas sur {platform.system()}")
         return 1
 
     # Obtenir le chemin absolu du répertoire actuel du projet
@@ -35,14 +33,10 @@ def main():
     dist_dir_windows.mkdir(parents=True, exist_ok=True)
 
     # Compiler pour macOS et Windows
-    print(
-        "[INFO] Mode de compilation local sur macOS: génération des exécutables macOS et Windows"
-    )
+    print("[INFO] Mode de compilation local sur macOS: génération des exécutables macOS et Windows")
 
     print("\n=== Compilation macOS ===")
-    macos_success = build_native_macos(
-        project_root, entrypoint, exe_name, dist_dir_macos
-    )
+    macos_success = build_native_macos(project_root, entrypoint, exe_name, dist_dir_macos)
 
     print("\n=== Compilation Windows (cross-compilation) ===")
     windows_success = build_windows_on_macos(
@@ -55,12 +49,11 @@ def main():
     print(f"  - Windows: {'RÉUSSI' if windows_success else 'ÉCHOUÉ'}")
 
     if macos_success and windows_success:
-        print(f"\n[INFO] Exécutables disponibles dans:")
+        print("\n[INFO] Exécutables disponibles dans:")
         print(f"  - macOS: {dist_dir_macos / exe_name}")
         print(f"  - Windows: {dist_dir_windows / (exe_name + '.exe')}")
         return 0
-    else:
-        return 1
+    return 1
 
 
 if __name__ == "__main__":

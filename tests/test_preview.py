@@ -4,11 +4,7 @@ Tests unitaires pour le module preview.py
 Ce module teste les classes AdjustmentSample et PreviewData.
 """
 
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
-
-import pytest
 
 from preview import AdjustmentSample, PreviewData
 from solar import SolarPoint
@@ -40,12 +36,8 @@ class TestAdjustmentSample:
         assert sample.original_temp == 25.0
         assert sample.adjusted_temp == 32.0
         assert sample.solar_irradiance == 750.0
-        assert sample.weather_datetime_utc == datetime(
-            2045, 6, 15, 10, 0, 0, tzinfo=timezone.utc
-        )
-        assert sample.solar_datetime_utc == datetime(
-            2045, 6, 15, 9, 0, 0, tzinfo=timezone.utc
-        )
+        assert sample.weather_datetime_utc == datetime(2045, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        assert sample.solar_datetime_utc == datetime(2045, 6, 15, 9, 0, 0, tzinfo=timezone.utc)
 
         # Vérifier que l'ajustement est correct
         assert sample.adjusted_temp - sample.original_temp == 7.0

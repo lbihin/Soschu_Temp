@@ -6,7 +6,6 @@ de référence validés manuellement.
 """
 
 import filecmp
-import os
 import tempfile
 from pathlib import Path
 
@@ -102,12 +101,10 @@ class TestOutputFileComparison:
                 # En cas d'échec, afficher les différences
                 if not are_identical:
                     # Lire les deux fichiers pour trouver les différences
-                    with open(
-                        gen_file_path, "r", encoding="iso-8859-1"
-                    ) as gen_file, open(
-                        ref_file_path, "r", encoding="iso-8859-1"
-                    ) as ref_file:
-
+                    with (
+                        Path(gen_file_path).open(encoding="iso-8859-1") as gen_file,
+                        Path(ref_file_path).open(encoding="iso-8859-1") as ref_file,
+                    ):
                         gen_lines = gen_file.readlines()
                         ref_lines = ref_file.readlines()
 

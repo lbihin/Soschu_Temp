@@ -59,12 +59,11 @@ def build_native_macos(
             else:
                 print(f"[SUCCES] Exécutable macOS généré : {built_macos}")
             return True
-        else:
-            print("[ERREUR] Aucun exécutable macOS trouvé après build.")
-            print("Contenu du répertoire dist:")
-            for file in Path("dist").glob("*"):
-                print(f"  - {file}")
-            return False
+        print("[ERREUR] Aucun exécutable macOS trouvé après build.")
+        print("Contenu du répertoire dist:")
+        for file in Path("dist").glob("*"):
+            print(f"  - {file}")
+        return False
     except subprocess.CalledProcessError as e:
         print(f"[ERREUR] Erreur lors de la compilation macOS : {e}")
         return False
@@ -126,12 +125,11 @@ def build_native_windows(
             else:
                 print(f"[SUCCES] .exe généré : {built_exe}")
             return True
-        else:
-            print("[ERREUR] Aucun .exe trouvé après build.")
-            print("Contenu du répertoire dist:")
-            for file in Path("dist").glob("*"):
-                print(f"  - {file}")
-            return False
+        print("[ERREUR] Aucun .exe trouvé après build.")
+        print("Contenu du répertoire dist:")
+        for file in Path("dist").glob("*"):
+            print(f"  - {file}")
+        return False
     except subprocess.CalledProcessError as e:
         print(f"[ERREUR] Erreur PyInstaller : {e}")
         return False
@@ -197,7 +195,7 @@ exe = EXE(pyz,
 
     # Écriture du fichier .spec
     spec_file = Path(project_root) / f"{exe_name}_windows.spec"
-    with open(spec_file, "w") as f:
+    with spec_file.open("w") as f:
         f.write(spec_content)
 
     print(f"[SUCCES] Fichier spec créé: {spec_file}")
@@ -247,14 +245,11 @@ exe = EXE(pyz,
                 built_file.rename(final_path)
                 print(f"[SUCCES] .exe généré avec succès : {final_path}")
             return True
-        else:
-            print(
-                "[ERREUR] Le fichier executable n'a pas été trouvé après compilation."
-            )
-            print("Contenu du répertoire dist:")
-            for file in Path("dist").glob("*"):
-                print(f"  - {file}")
-            return False
+        print("[ERREUR] Le fichier executable n'a pas été trouvé après compilation.")
+        print("Contenu du répertoire dist:")
+        for file in Path("dist").glob("*"):
+            print(f"  - {file}")
+        return False
     except subprocess.CalledProcessError as e:
         print(f"[ERREUR] Erreur lors de la compilation avec PyInstaller : {e}")
         return False
@@ -309,19 +304,18 @@ def main():
         print(f"  - Windows: {'RÉUSSI' if windows_success else 'ÉCHOUÉ'}")
 
         if macos_success and windows_success:
-            print(f"\n[INFO] Exécutables disponibles dans:")
+            print("\n[INFO] Exécutables disponibles dans:")
             print(f"  - macOS: {dist_dir_macos / exe_name}")
             print(f"  - Windows: {dist_dir_windows / (exe_name + '.exe')}")
             return 0
-        else:
-            return 1
-    elif is_macos and is_github_actions:
+        return 1
+    if is_macos and is_github_actions:
         # Sur GitHub Actions avec macOS, compiler uniquement pour macOS
         success = build_native_macos(
             project_root, entrypoint, exe_name, dist_dir_macos, is_github_actions
         )
         return 0 if success else 1
-    elif is_windows:
+    if is_windows:
         # Sur Windows (local ou GitHub Actions), compiler uniquement pour Windows
         success = build_native_windows(
             project_root,
@@ -332,11 +326,8 @@ def main():
             is_github_actions,
         )
         return 0 if success else 1
-    else:
-        print(
-            f"[ERREUR] Système d'exploitation non pris en charge: {platform.system()}"
-        )
-        return 1
+    print(f"[ERREUR] Système d'exploitation non pris en charge: {platform.system()}")
+    return 1
 
 
 if __name__ == "__main__":

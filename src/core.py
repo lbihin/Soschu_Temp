@@ -8,10 +8,11 @@ Ce module contient la logique principale pour:
 4. Création des fichiers de sortie
 """
 
+from __future__ import annotations
+
 import logging
 from parser import SolarParser, WeatherParser
 from pathlib import Path
-from typing import List
 
 from preview import AdjustmentSample, PreviewData
 
@@ -57,23 +58,12 @@ class SoschuProcessor:
         if solar_data:
             facades = list(solar_data[0].irradiance_by_facade.keys())
 
-        adjustments_by_facade = {facade: 0 for facade in facades}
-        sample_adjustments = []
+        adjustments_by_facade = dict.fromkeys(facades, 0)
         total_adjustments = 0
 
-        # Structure pour collecter des exemples par façade et par type d'heure (été/hiver)
-        max_samples_per_type = 3  # Nombre maximal d'exemples par type et par façade
-        samples_by_facade_and_season = {
-            facade: {"winter": [], "summer": []} for facade in facades
-        }
-        # Pour stocker tous les ajustements possibles
+        max_samples_per_type = 3
         all_adjustments_by_facade_season = {
             facade: {"winter": [], "summer": []} for facade in facades
-        }
-
-        # Pour suivre les jours déjà utilisés pour les exemples
-        days_used_by_facade_season = {
-            facade: {"winter": set(), "summer": set()} for facade in facades
         }
 
         logger.info("Collecte des exemples d'ajustements pour prévisualisation...")
@@ -226,7 +216,7 @@ class SoschuProcessor:
             solar_file_path=solar_file,  # Ajouter le chemin du fichier solaire
         )
 
-    def generate_files(self, preview_data: PreviewData, output_dir: str) -> List[str]:
+    def generate_files(self, preview_data: PreviewData, output_dir: str) -> list[str]:
         """Génère les fichiers de sortie basés sur les données de prévisualisation."""
 
         output_path = Path(output_dir)
@@ -251,7 +241,7 @@ class SoschuProcessor:
             filename = f"{weather_file_name}_{facade.replace(' ', '_')}.dat"
             output_file = output_path / filename
 
-            with open(output_file, "w", encoding="iso-8859-1") as f:
+            with output_file.open("w", encoding="iso-8859-1") as f:
                 # Écrire le header
                 f.write(preview_data.weather_file_header)
 

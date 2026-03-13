@@ -22,9 +22,7 @@ def sample_weather_file():
 @pytest.fixture
 def sample_solar_file():
     """Path to the sample solar data file."""
-    return str(
-        Path(__file__).parent / "data" / "Solare Einstrahlung auf die Fassade.html"
-    )
+    return str(Path(__file__).parent / "data" / "Solare Einstrahlung auf die Fassade.html")
 
 
 @pytest.fixture
@@ -110,9 +108,7 @@ def sample_solar_data():
             f4_irradiance = 0
 
         # Déterminer si heure d'été (MESZ)
-        is_dst = (
-            True  # Pour simplifier, on considère que juin est toujours en heure d'été
-        )
+        is_dst = True  # Pour simplifier, on considère que juin est toujours en heure d'été
 
         data_point = SolarPoint(
             month=6,

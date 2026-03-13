@@ -85,7 +85,7 @@ Format: M D H Ta
         try:
             # Analyser le fichier avec année spécifique
             parser = WeatherParser()
-            header, data_points = parser.parse(temp_path, year=2023)
+            _header, data_points = parser.parse(temp_path, year=2023)
 
             # Vérifier que l'année a été correctement assignée
             assert data_points[0].year == 2023

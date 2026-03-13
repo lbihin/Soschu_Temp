@@ -4,10 +4,7 @@ Tests unitaires pour le module core_logic.py
 Ce module teste la classe SoschuProcessor et son traitement de données.
 """
 
-import tempfile
 from unittest.mock import patch
-
-import pytest
 
 from core import SoschuProcessor
 from preview import PreviewData
