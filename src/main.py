@@ -37,6 +37,7 @@ else:
         sys.path.insert(0, str(_current.parent))
 
 from core import PreviewData, SoschuProcessor
+from theme import get_theme
 
 # Configuration du logging
 logging.basicConfig(
@@ -54,6 +55,8 @@ class SoschuApp:
         self.root.geometry("800x450")
         self.root.resizable(True, True)
 
+        self.theme = get_theme()
+
         self.weather_file = tk.StringVar()
         self.solar_file = tk.StringVar()
         self.threshold = tk.StringVar(value="200")
@@ -61,17 +64,46 @@ class SoschuApp:
 
         self.preview_data: PreviewData | None = None
 
+        self._apply_root_theme()
         self.setup_ui()
+
+    def _apply_root_theme(self):
+        """Applique le thème au niveau racine (ttk styles + root bg)."""
+        t = self.theme
+        self.root.configure(bg=t.bg_primary)
+
+        style = ttk.Style()
+        style.configure("TNotebook", background=t.bg_primary)
+        style.configure("TNotebook.Tab", padding=[10, 4])
+        style.configure("TFrame", background=t.bg_primary)
+        style.configure(
+            "Treeview",
+            background=t.bg_secondary,
+            foreground=t.fg_primary,
+            fieldbackground=t.bg_secondary,
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=t.heading_bg,
+            foreground=t.fg_primary,
+        )
 
     def setup_ui(self):
         """Configure l'interface utilisateur."""
+        t = self.theme
+
         # Frame principal avec padding
-        main_frame = tk.Frame(self.root, padx=20, pady=20)
+        main_frame = tk.Frame(self.root, padx=20, pady=20, bg=t.bg_primary)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Section sélection de fichiers
         files_frame = tk.LabelFrame(
-            main_frame, text="Fichiers d'entrée", padx=15, pady=15
+            main_frame,
+            text="Fichiers d'entrée",
+            padx=15,
+            pady=15,
+            bg=t.bg_primary,
+            fg=t.fg_primary,
         )
         files_frame.pack(fill=tk.X, pady=(0, 15))
 
@@ -79,14 +111,21 @@ class SoschuApp:
         files_frame.grid_columnconfigure(1, weight=1)
 
         # Fichier météo
-        tk.Label(files_frame, text="Fichier météo (.dat):", font=("Arial", 10)).grid(
-            row=0, column=0, sticky=tk.W, pady=8, padx=(0, 10)
-        )
+        tk.Label(
+            files_frame,
+            text="Fichier météo (.dat):",
+            font=("Arial", 10),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
+        ).grid(row=0, column=0, sticky=tk.W, pady=8, padx=(0, 10))
         tk.Entry(
             files_frame,
             textvariable=self.weather_file,
             state="readonly",
             font=("Arial", 9),
+            bg=t.bg_input,
+            fg=t.fg_primary,
+            readonlybackground=t.bg_input,
         ).grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=8)
         tk.Button(
             files_frame,
@@ -97,14 +136,21 @@ class SoschuApp:
         ).grid(row=0, column=2, padx=5, pady=8)
 
         # Fichier solaire
-        tk.Label(files_frame, text="Fichier solaire (.html):", font=("Arial", 10)).grid(
-            row=1, column=0, sticky=tk.W, pady=8, padx=(0, 10)
-        )
+        tk.Label(
+            files_frame,
+            text="Fichier solaire (.html):",
+            font=("Arial", 10),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
+        ).grid(row=1, column=0, sticky=tk.W, pady=8, padx=(0, 10))
         tk.Entry(
             files_frame,
             textvariable=self.solar_file,
             state="readonly",
             font=("Arial", 9),
+            bg=t.bg_input,
+            fg=t.fg_primary,
+            readonlybackground=t.bg_input,
         ).grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=8)
         tk.Button(
             files_frame,
@@ -115,7 +161,14 @@ class SoschuApp:
         ).grid(row=1, column=2, padx=5, pady=8)
 
         # Section paramètres
-        params_frame = tk.LabelFrame(main_frame, text="Paramètres", padx=15, pady=15)
+        params_frame = tk.LabelFrame(
+            main_frame,
+            text="Paramètres",
+            padx=15,
+            pady=15,
+            bg=t.bg_primary,
+            fg=t.fg_primary,
+        )
         params_frame.pack(fill=tk.X, pady=(0, 20))
 
         # Configuration de la grille pour les paramètres
@@ -123,55 +176,86 @@ class SoschuApp:
         params_frame.grid_columnconfigure(3, weight=1)
 
         # Threshold
-        tk.Label(params_frame, text="Seuil d'irradiation:", font=("Arial", 10)).grid(
-            row=0, column=0, sticky=tk.W, padx=(0, 10), pady=8
-        )
+        tk.Label(
+            params_frame,
+            text="Seuil d'irradiation:",
+            font=("Arial", 10),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
+        ).grid(row=0, column=0, sticky=tk.W, padx=(0, 10), pady=8)
         threshold_entry = tk.Entry(
-            params_frame, textvariable=self.threshold, width=12, font=("Arial", 10)
+            params_frame,
+            textvariable=self.threshold,
+            width=12,
+            font=("Arial", 10),
+            bg=t.bg_input,
+            fg=t.fg_primary,
+            insertbackground=t.fg_primary,
         )
         threshold_entry.grid(row=0, column=1, sticky=tk.W, padx=(0, 5), pady=8)
-        tk.Label(params_frame, text="W/m²", font=("Arial", 10)).grid(
-            row=0, column=2, sticky=tk.W, padx=(5, 20), pady=8
-        )
+        tk.Label(
+            params_frame,
+            text="W/m²",
+            font=("Arial", 10),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
+        ).grid(row=0, column=2, sticky=tk.W, padx=(5, 20), pady=8)
 
         # Delta T
         tk.Label(
-            params_frame, text="Augmentation température:", font=("Arial", 10)
+            params_frame,
+            text="Augmentation température:",
+            font=("Arial", 10),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
         ).grid(row=0, column=3, sticky=tk.W, padx=(0, 10), pady=8)
         delta_entry = tk.Entry(
-            params_frame, textvariable=self.delta_t, width=12, font=("Arial", 10)
+            params_frame,
+            textvariable=self.delta_t,
+            width=12,
+            font=("Arial", 10),
+            bg=t.bg_input,
+            fg=t.fg_primary,
+            insertbackground=t.fg_primary,
         )
         delta_entry.grid(row=0, column=4, sticky=tk.W, padx=(0, 5), pady=8)
-        tk.Label(params_frame, text="°C", font=("Arial", 10)).grid(
-            row=0, column=5, sticky=tk.W, padx=(5, 0), pady=8
-        )
+        tk.Label(
+            params_frame,
+            text="°C",
+            font=("Arial", 10),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
+        ).grid(row=0, column=5, sticky=tk.W, padx=(5, 0), pady=8)
 
         # Section bouton central - seulement prévisualiser
-        button_frame = tk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=(10, 15), expand=True)  # Ajout de expand=True
+        button_frame = tk.Frame(main_frame, bg=t.bg_primary)
+        button_frame.pack(fill=tk.X, pady=(10, 15), expand=True)
 
         # Bouton prévisualiser centré
         self.preview_btn = tk.Button(
             button_frame,
             text="Prévisualiser les ajustements",
             command=self.preview_processing,
-            bg="#4A90E2",
-            fg="white",
+            bg=t.accent_primary,
+            fg=t.accent_primary_fg,
+            activebackground=t.accent_primary,
+            activeforeground=t.accent_primary_fg,
             font=("Arial", 12, "bold"),
             width=25,
             height=2,
             relief=tk.RAISED,
             bd=2,
-            state=tk.DISABLED,  # Désactivé par défaut
+            state=tk.DISABLED,
         )
-        self.preview_btn.pack(pady=20, expand=True)  # Augmentation du padding vertical
+        self.preview_btn.pack(pady=20, expand=True)
 
         # Ajouter une étiquette au-dessus du bouton pour le rendre plus visible
         preview_label = tk.Label(
             button_frame,
             text="Cliquez sur le bouton ci-dessous quand vous êtes prêt",
             font=("Arial", 10),
-            fg="gray",
+            fg=t.fg_secondary,
+            bg=t.bg_primary,
         )
         preview_label.pack(pady=(0, 5))
 
@@ -381,7 +465,8 @@ class SoschuApp:
             wizard.transient(self.root)
 
             # Définir une icône et un style moderne
-            wizard.configure(bg="#f5f5f5")
+            t = self.theme
+            wizard.configure(bg=t.bg_primary)
 
             logger.info("Fenêtre wizard créée avec succès")
         except Exception as e:
@@ -393,7 +478,7 @@ class SoschuApp:
         current_step = tk.IntVar(value=0)
 
         # Créer le frame principal
-        main_frame = tk.Frame(wizard, padx=20, pady=20)
+        main_frame = tk.Frame(wizard, padx=20, pady=20, bg=t.bg_primary)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Indicateur d'étapes simplifié (seulement pour la logique interne, pas visible)
@@ -408,24 +493,24 @@ class SoschuApp:
             step_widgets.append(label)
 
         # Zone de contenu
-        content_frame = tk.Frame(main_frame)
+        content_frame = tk.Frame(main_frame, bg=t.bg_primary)
         content_frame.pack(fill=tk.BOTH, expand=True)
 
         # Frame pour chaque étape
         step_frames = []
 
         # Étape 1: Résumé
-        step1_frame = tk.Frame(content_frame)
+        step1_frame = tk.Frame(content_frame, bg=t.bg_primary)
         step_frames.append(step1_frame)
         self._create_wizard_summary_step(step1_frame)
 
         # Étape 2: Exemples
-        step2_frame = tk.Frame(content_frame)
+        step2_frame = tk.Frame(content_frame, bg=t.bg_primary)
         step_frames.append(step2_frame)
         self._create_wizard_examples_step(step2_frame)
 
         # Étape 3: Génération
-        step3_frame = tk.Frame(content_frame)
+        step3_frame = tk.Frame(content_frame, bg=t.bg_primary)
         step_frames.append(step3_frame)
         self._create_wizard_generation_step(step3_frame, wizard)
 
@@ -433,7 +518,7 @@ class SoschuApp:
         step_frames[0].pack(fill=tk.BOTH, expand=True)
 
         # Boutons de navigation (placés après les étapes dans une zone toujours visible)
-        nav_frame = tk.Frame(main_frame, bg="#f5f5f5", height=60)
+        nav_frame = tk.Frame(main_frame, bg=t.bg_nav, height=60)
         nav_frame.pack(fill=tk.X, pady=(20, 10), padx=20)
         # S'assurer que le frame garde sa taille même si le contenu est plus petit
         nav_frame.pack_propagate(False)
@@ -467,7 +552,7 @@ class SoschuApp:
                 update_step_display()
 
         # Zone des boutons avec espacement
-        buttons_left_frame = tk.Frame(nav_frame, bg="#f5f5f5")
+        buttons_left_frame = tk.Frame(nav_frame, bg=t.bg_nav)
         buttons_left_frame.pack(side=tk.LEFT, fill=tk.Y)
 
         # Bouton précédent avec style amélioré
@@ -477,7 +562,8 @@ class SoschuApp:
             command=prev_step,
             width=12,
             height=2,
-            bg="#e1e1e1",
+            bg=t.bg_nav,
+            fg=t.fg_primary,
             font=("Arial", 10),
             state=tk.DISABLED,
         )
@@ -490,8 +576,10 @@ class SoschuApp:
             command=next_step,
             width=12,
             height=2,
-            bg="#4a86e8",
-            fg="white",
+            bg=t.accent_primary,
+            fg=t.accent_primary_fg,
+            activebackground=t.accent_primary,
+            activeforeground=t.accent_primary_fg,
             font=("Arial", 10, "bold"),
             relief=tk.RAISED,
             bd=3,
@@ -505,8 +593,10 @@ class SoschuApp:
             command=wizard.destroy,
             width=12,
             height=2,
-            bg="#f44336",
-            fg="white",
+            bg=t.accent_danger,
+            fg=t.accent_danger_fg,
+            activebackground=t.accent_danger,
+            activeforeground=t.accent_danger_fg,
             relief=tk.RAISED,
             bd=3,
             font=("Arial", 10),
@@ -518,30 +608,41 @@ class SoschuApp:
         if not self.preview_data:
             return
 
+        t = self.theme
+
         # Titre de l'étape
-        title_frame = tk.Frame(parent)
+        title_frame = tk.Frame(parent, bg=t.bg_primary)
         title_frame.pack(fill=tk.X, pady=(0, 20))
 
         tk.Label(
             title_frame,
             text="Résumé des paramètres et résultats",
             font=("Arial", 14, "bold"),
+            bg=t.bg_primary,
+            fg=t.fg_heading,
         ).pack()
 
         tk.Label(
             title_frame,
             text="Vérifiez les paramètres et les statistiques avant de continuer",
             font=("Arial", 10),
-            fg="gray",
+            fg=t.fg_secondary,
+            bg=t.bg_primary,
         ).pack()
 
         # Contenu principal
-        content_frame = tk.Frame(parent)
+        content_frame = tk.Frame(parent, bg=t.bg_primary)
         content_frame.pack(fill=tk.BOTH, expand=True)
 
         # Texte de résumé
         text_widget = tk.Text(
-            content_frame, wrap=tk.WORD, font=("Arial", 11), height=20
+            content_frame,
+            wrap=tk.WORD,
+            font=("Arial", 11),
+            height=20,
+            bg=t.bg_secondary,
+            fg=t.fg_primary,
+            insertbackground=t.fg_primary,
         )
         scrollbar = ttk.Scrollbar(
             content_frame, orient=tk.VERTICAL, command=text_widget.yview
@@ -600,36 +701,41 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         if not self.preview_data:
             return
 
+        t = self.theme
+
         # Définir une hauteur max pour cette étape afin de laisser de la place pour les boutons
         parent.configure(height=580)
 
         # Titre de l'étape
-        title_frame = tk.Frame(parent)
+        title_frame = tk.Frame(parent, bg=t.bg_primary)
         title_frame.pack(fill=tk.X, pady=(0, 20))
 
         tk.Label(
             title_frame,
             text="Exemples d'ajustements de température",
             font=("Arial", 14, "bold"),
+            bg=t.bg_primary,
+            fg=t.fg_heading,
         ).pack()
 
         tk.Label(
             title_frame,
             text="Voici quelques exemples concrets des ajustements qui seront appliqués",
             font=("Arial", 10),
-            fg="gray",
+            fg=t.fg_secondary,
+            bg=t.bg_primary,
         ).pack()
 
         # Contenu principal - Utiliser un Canvas avec scrollbar pour contenir tout le contenu
-        master_frame = tk.Frame(parent)
+        master_frame = tk.Frame(parent, bg=t.bg_primary)
         master_frame.pack(fill=tk.BOTH, expand=True)
 
         # Créer un canvas avec scrollbar pour permettre le défilement vertical
-        canvas = tk.Canvas(master_frame)
+        canvas = tk.Canvas(master_frame, bg=t.bg_primary, highlightthickness=0)
         scrollbar = ttk.Scrollbar(
             master_frame, orient=tk.VERTICAL, command=canvas.yview
         )
-        content_frame = tk.Frame(canvas)
+        content_frame = tk.Frame(canvas, bg=t.bg_primary)
 
         # Configurer le canvas pour utiliser la scrollbar
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -693,12 +799,8 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             )
 
         # Configuration des tags pour la coloration
-        tree.tag_configure(
-            "summer", background="#FFFFE0"
-        )  # Jaune pâle pour l'été (MESZ)
-        tree.tag_configure(
-            "winter", background="#E0F0FF"
-        )  # Bleu pâle pour l'hiver (MEZ)
+        tree.tag_configure("summer", background=t.summer_bg)
+        tree.tag_configure("winter", background=t.winter_bg)
 
         # Scrollbar pour le treeview
         scrollbar_tree = ttk.Scrollbar(
@@ -754,7 +856,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
                     )
 
         # Créer un cadre pour l'option
-        option_frame = tk.Frame(content_frame)
+        option_frame = tk.Frame(content_frame, bg=t.bg_primary)
         option_frame.pack(fill=tk.X, pady=(0, 5))
 
         # Ajouter la case à cocher
@@ -764,6 +866,11 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             variable=self.show_utc,
             command=toggle_utc_display,
             font=("Arial", 9),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
+            selectcolor=t.bg_secondary,
+            activebackground=t.bg_primary,
+            activeforeground=t.fg_primary,
         )
         utc_check.pack(anchor="w", padx=5)
 
@@ -772,24 +879,32 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
 
         # Note explicative avec légende
-        note_frame = tk.Frame(parent)
+        note_frame = tk.Frame(parent, bg=t.bg_primary)
         note_frame.pack(fill=tk.X, pady=(10, 0))
 
         # Afficher le nombre total d'exemples
         note_text = f"💡 Note: {len(self.preview_data.sample_adjustments)} échantillons représentatifs sur {self.preview_data.total_adjustments:,} ajustements totaux"
-        tk.Label(note_frame, text=note_text, font=("Arial", 10), fg="gray").pack(
-            anchor="w", padx=5
-        )
+        tk.Label(
+            note_frame,
+            text=note_text,
+            font=("Arial", 10),
+            fg=t.fg_secondary,
+            bg=t.bg_primary,
+        ).pack(anchor="w", padx=5)
 
         # Légende des couleurs
-        legend_frame = tk.Frame(note_frame)
+        legend_frame = tk.Frame(note_frame, bg=t.bg_primary)
         legend_frame.pack(pady=5, anchor="w")
 
         # Légende heure d'été
-        summer_frame = tk.Frame(legend_frame, bg="#FFFFE0", width=20, height=20)
+        summer_frame = tk.Frame(legend_frame, bg=t.summer_bg, width=20, height=20)
         summer_frame.pack(side=tk.LEFT, padx=5)
         summer_label = tk.Label(
-            legend_frame, text="Heure d'été (MESZ)", font=("Arial", 9)
+            legend_frame,
+            text="Heure d'été (MESZ)",
+            font=("Arial", 9),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
         )
         summer_label.pack(side=tk.LEFT, padx=5)
 
@@ -807,23 +922,33 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         )
 
         # Légende heure d'hiver
-        winter_frame = tk.Frame(legend_frame, bg="#E0F0FF", width=20, height=20)
+        winter_frame = tk.Frame(legend_frame, bg=t.winter_bg, width=20, height=20)
         winter_frame.pack(side=tk.LEFT, padx=15)
         winter_label = tk.Label(
-            legend_frame, text="Heure d'hiver (MEZ)", font=("Arial", 9)
+            legend_frame,
+            text="Heure d'hiver (MEZ)",
+            font=("Arial", 9),
+            bg=t.bg_primary,
+            fg=t.fg_primary,
         )
         winter_label.pack(side=tk.LEFT, padx=5)
 
         # Ajouter un cadre d'information pour expliquer les différences de format horaire
-        info_frame = tk.Frame(note_frame, relief=tk.RIDGE, bd=1)
+        info_frame = tk.Frame(note_frame, relief=tk.RIDGE, bd=1, bg=t.bg_secondary)
         info_frame.pack(fill=tk.X, pady=10, padx=5)
 
         # Icône d'information
-        info_label = tk.Label(info_frame, text=" ℹ️ ", font=("Arial", 16), fg="blue")
+        info_label = tk.Label(
+            info_frame,
+            text=" ℹ️ ",
+            font=("Arial", 16),
+            fg=t.info_fg,
+            bg=t.bg_secondary,
+        )
         info_label.pack(side=tk.LEFT, padx=5)
 
         # Message d'information
-        message_frame = tk.Frame(info_frame)
+        message_frame = tk.Frame(info_frame, bg=t.bg_secondary)
         message_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=5)
 
         tk.Label(
@@ -832,66 +957,62 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             font=("Arial", 10, "bold"),
             justify=tk.LEFT,
             anchor="w",
+            bg=t.bg_secondary,
+            fg=t.fg_primary,
         ).pack(fill=tk.X)
 
-        tk.Label(
-            message_frame,
-            text="• Les fichiers DAT utilisent le format 1-24h en MEZ (heure fixe toute l'année)",
-            font=("Arial", 9),
-            justify=tk.LEFT,
-            anchor="w",
-        ).pack(fill=tk.X)
-
-        tk.Label(
-            message_frame,
-            text="• Les fichiers HTML utilisent le format 0-23h et alternent entre MEZ et MESZ",
-            font=("Arial", 9),
-            justify=tk.LEFT,
-            anchor="w",
-        ).pack(fill=tk.X)
-
-        tk.Label(
-            message_frame,
-            text="• Une même heure UTC peut donc être représentée différemment dans les deux formats",
-            font=("Arial", 9),
-            justify=tk.LEFT,
-            anchor="w",
-        ).pack(fill=tk.X)
-
-        tk.Label(
-            message_frame,
-            text="• Le système utilise l'UTC en interne pour garantir la correspondance exacte",
-            font=("Arial", 9),
-            justify=tk.LEFT,
-            anchor="w",
-        ).pack(fill=tk.X)
+        for info_text in (
+            "• Les fichiers DAT utilisent le format 1-24h en MEZ (heure fixe toute l'année)",
+            "• Les fichiers HTML utilisent le format 0-23h et alternent entre MEZ et MESZ",
+            "• Une même heure UTC peut donc être représentée différemment dans les deux formats",
+            "• Le système utilise l'UTC en interne pour garantir la correspondance exacte",
+        ):
+            tk.Label(
+                message_frame,
+                text=info_text,
+                font=("Arial", 9),
+                justify=tk.LEFT,
+                anchor="w",
+                bg=t.bg_secondary,
+                fg=t.fg_primary,
+            ).pack(fill=tk.X)
 
     def _create_wizard_generation_step(self, parent, wizard_window):
         """Crée l'étape 3 du wizard: Génération des fichiers."""
+        t = self.theme
+
         # Titre de l'étape
-        title_frame = tk.Frame(parent)
+        title_frame = tk.Frame(parent, bg=t.bg_primary)
         title_frame.pack(fill=tk.X, pady=(0, 30))
 
         tk.Label(
             title_frame,
             text="Génération des fichiers ajustés",
             font=("Arial", 14, "bold"),
+            bg=t.bg_primary,
+            fg=t.fg_heading,
         ).pack()
 
         tk.Label(
             title_frame,
             text="Choisissez le dossier de destination et lancez la génération",
             font=("Arial", 10),
-            fg="gray",
+            fg=t.fg_secondary,
+            bg=t.bg_primary,
         ).pack()
 
         # Contenu principal
-        content_frame = tk.Frame(parent)
+        content_frame = tk.Frame(parent, bg=t.bg_primary)
         content_frame.pack(fill=tk.BOTH, expand=True)
 
         # Zone de sélection du dossier
         folder_frame = tk.LabelFrame(
-            content_frame, text="Dossier de destination", padx=20, pady=20
+            content_frame,
+            text="Dossier de destination",
+            padx=20,
+            pady=20,
+            bg=t.bg_primary,
+            fg=t.fg_primary,
         )
         folder_frame.pack(fill=tk.X, pady=(0, 30))
 
@@ -904,7 +1025,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
 
         self.output_folder = tk.StringVar(value=default_folder)
 
-        folder_inner_frame = tk.Frame(folder_frame)
+        folder_inner_frame = tk.Frame(folder_frame, bg=t.bg_primary)
         folder_inner_frame.pack(fill=tk.X)
         folder_inner_frame.grid_columnconfigure(0, weight=1)
 
@@ -913,6 +1034,9 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             textvariable=self.output_folder,
             state="readonly",
             font=("Arial", 10),
+            bg=t.bg_input,
+            fg=t.fg_primary,
+            readonlybackground=t.bg_input,
         ).grid(row=0, column=0, sticky="ew", padx=(0, 10))
 
         def select_output_folder():
@@ -928,7 +1052,12 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
 
         # Zone de génération
         generation_frame = tk.LabelFrame(
-            content_frame, text="Génération", padx=20, pady=20
+            content_frame,
+            text="Génération",
+            padx=20,
+            pady=20,
+            bg=t.bg_primary,
+            fg=t.fg_primary,
         )
         generation_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -937,8 +1066,10 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             generation_frame,
             text="🚀 Générer les fichiers",
             command=lambda: self._start_generation_from_wizard(wizard_window),
-            bg="#28a745",
-            fg="white",
+            bg=t.accent_success,
+            fg=t.accent_success_fg,
+            activebackground=t.accent_success,
+            activeforeground=t.accent_success_fg,
             font=("Arial", 14, "bold"),
             width=25,
             height=2,
@@ -952,7 +1083,8 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             generation_frame,
             text="Prêt à générer les fichiers",
             font=("Arial", 11),
-            fg="blue",
+            fg=t.status_ready,
+            bg=t.bg_primary,
         )
         self.generation_status.pack(pady=(0, 10))
 
@@ -964,7 +1096,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         self.generation_progress.pack_forget()
 
         # Zone pour afficher la liste des fichiers générés (initialement cachée)
-        self.files_frame = tk.Frame(generation_frame)
+        self.files_frame = tk.Frame(generation_frame, bg=t.bg_primary)
         self.files_frame.pack(fill=tk.BOTH, expand=True)
         self.files_frame.pack_forget()
 
@@ -974,15 +1106,19 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             font=("Arial", 11, "bold"),
             anchor="w",
             justify=tk.LEFT,
+            bg=t.bg_primary,
+            fg=t.fg_primary,
         )
         self.files_header.pack(fill=tk.X, pady=(10, 5))
 
         # Zone scrollable pour la liste des fichiers
-        self.files_canvas = tk.Canvas(self.files_frame, borderwidth=0)
+        self.files_canvas = tk.Canvas(
+            self.files_frame, borderwidth=0, bg=t.bg_primary, highlightthickness=0
+        )
         scrollbar = ttk.Scrollbar(
             self.files_frame, orient="vertical", command=self.files_canvas.yview
         )
-        self.files_list_frame = tk.Frame(self.files_canvas)
+        self.files_list_frame = tk.Frame(self.files_canvas, bg=t.bg_primary)
 
         self.files_canvas.configure(yscrollcommand=scrollbar.set)
         self.files_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1004,7 +1140,8 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             text="📂 Ouvrir le dossier contenant les fichiers",
             command=lambda: self._open_folder(self.output_folder.get()),
             font=("Arial", 10),
-            bg="#f0f0f0",
+            bg=t.bg_secondary,
+            fg=t.fg_primary,
         )
         self.open_folder_btn.pack(pady=15)
 
@@ -1047,7 +1184,9 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
 
         # Mettre à jour l'interface pour refléter le début de la génération
         if hasattr(self, "generation_status"):
-            self.generation_status.config(text="Génération en cours...", fg="orange")
+            self.generation_status.config(
+                text="Génération en cours...", fg=self.theme.status_progress
+            )
 
         # S'assurer que la barre de progression est visible et active
         if hasattr(self, "generation_progress"):
@@ -1114,7 +1253,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         if hasattr(self, "generation_status"):
             self.generation_status.config(
                 text=f"✓ Génération terminée avec succès! ({nb_files} {file_word})",
-                fg="green",
+                fg=self.theme.status_ok,
             )
 
         # Réactiver le bouton de génération s'il existe
@@ -1139,7 +1278,7 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
         # Mettre à jour le statut
         if hasattr(self, "generation_status"):
             self.generation_status.config(
-                text="❌ Erreur lors de la génération", fg="red"
+                text="❌ Erreur lors de la génération", fg=self.theme.status_error
             )
 
         # Réactiver le bouton de génération s'il existe
@@ -1169,14 +1308,15 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
             # Afficher la liste des fichiers avec des coches vertes
             for file_path in sorted(generated_files):
                 file_name = Path(file_path).name
-                file_frame = tk.Frame(self.files_list_frame)
+                file_frame = tk.Frame(self.files_list_frame, bg=self.theme.bg_primary)
                 file_frame.pack(fill=tk.X, pady=2)
 
                 tk.Label(
                     file_frame,
                     text="✓",
                     font=("Arial", 11),
-                    fg="green",
+                    fg=self.theme.status_ok,
+                    bg=self.theme.bg_primary,
                 ).pack(side=tk.LEFT, padx=(0, 5))
 
                 tk.Label(
@@ -1185,6 +1325,8 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
                     font=("Arial", 11),
                     anchor="w",
                     justify=tk.LEFT,
+                    bg=self.theme.bg_primary,
+                    fg=self.theme.fg_primary,
                 ).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
             # Afficher la zone des fichiers générés
@@ -1200,7 +1342,8 @@ Pourcentage global d'ajustements: {(self.preview_data.total_adjustments / max(se
                     self.files_list_frame,
                     text="Aucun fichier généré",
                     font=("Arial", 11),
-                    fg="gray",
+                    fg=self.theme.fg_secondary,
+                    bg=self.theme.bg_primary,
                 ).pack(pady=10)
 
         except Exception as e:

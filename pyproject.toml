@@ -1,6 +1,6 @@
 [project]
 name = "soschu-temp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Outil d'ajustement des températures dans des fichiers météo basé sur l'irradiation solaire"
 authors = [{ name = "Laurent Bihin", email = "laurent.bihin@gmail.com" }]
 license = { text = "AGPL-3.0-only" }

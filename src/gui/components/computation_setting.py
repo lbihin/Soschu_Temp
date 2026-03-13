@@ -1,5 +1,7 @@
 import tkinter as tk
 
+from theme import get_theme
+
 
 class ToolTip:
     """Classe pour créer des info-bulles (tooltips) sur les widgets."""
@@ -8,6 +10,7 @@ class ToolTip:
         self.widget = widget
         self.text = text
         self.tooltip_window = None
+        self._theme = get_theme()
         self.widget.bind("<Enter>", self.show_tooltip)
         self.widget.bind("<Leave>", self.hide_tooltip)
 
@@ -27,7 +30,8 @@ class ToolTip:
             tw,
             text=self.text,
             justify=tk.LEFT,
-            background="#ffffe0",
+            background=self._theme.tooltip_bg,
+            foreground=self._theme.tooltip_fg,
             relief=tk.SOLID,
             borderwidth=1,
             font=("Arial", 9),
@@ -84,7 +88,9 @@ class ComputationSetting(tk.Frame):
         # Validation numérique optionnelle
         if validate_numeric:
             vcmd = (self.register(self._validate_numeric), "%P")
-            self.entry = tk.Entry(self, width=entry_width, validate="key", validatecommand=vcmd)
+            self.entry = tk.Entry(
+                self, width=entry_width, validate="key", validatecommand=vcmd
+            )
         else:
             self.entry = tk.Entry(self, width=entry_width)
 
