@@ -17,12 +17,16 @@ build-native = "tools.build_native:main"
 build-local = "tools.build_local:main"
 
 [dependency-groups]
+
 dev = [
     "ruff>=0.8.0",
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
     "pillow>=11.2.1",
     "pyinstaller>=6.14.1",
+    "ipykernel>=6.31.0",
+    "numpy>=2.0.2",
+    "pandas>=2.3.3",
 ]
 
 [build-system]

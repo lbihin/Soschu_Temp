@@ -3,6 +3,8 @@
 test_output/
 output/
 */data/TRY*body.dat
+**.csv
+**.dwdtry
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
